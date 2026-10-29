@@ -1,0 +1,6 @@
+{
+  "summary":  "Plano de implementação técnico e arquitetural da plataforma 'TrustLink - O LinkedIn da Confiança', detalhando a arquitetura de APIs em Fastify, o ciclo de autenticação resiliente com JWT + Refresh Tokens HttpOnly e sessões no Redis, as queries geoespaciais com PostGIS para o Radar de Urgência de 10km, o sistema de dupla avaliação condicionado ao contrato concluído e o dashboard executivo com foco em privacidade e alta segurança.",
+  "updatedAt":  "2026-10-29T07:40:46.192060733Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
