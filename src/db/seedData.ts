@@ -1,19 +1,19 @@
-import { 
-  FreelancerProfile, 
-  PublicReview, 
-  SecretEvaluation, 
-  Contract, 
-  FeedPost, 
-  JobPipelineItem,
-  JobApplicant,
+import type {
+  FreelancerProfile,
+  RadarFreelancer,
+  PublicReview,
+  SecretEvaluation,
+  Contract,
+  FeedPost,
   JobAnnouncement,
   ActiveSession,
-  AuthUser
-} from '../types';
+  AuthUser,
+} from '../types/index.ts';
 
 export const testUsers: Record<'freelancer' | 'employer', AuthUser> = {
   freelancer: {
     id: 'usr-901',
+    freelancerProfileId: 'fl-101',
     name: 'Maria Clara Silveira',
     email: 'maria.clara@trustlink.org',
     role: 'freelancer',
@@ -228,6 +228,66 @@ export const samplePublicReviews: PublicReview[] = [
     date: '28/03/2026',
     serviceCategory: 'Plantão de Urgência Noturna',
     contractPeriod: 'Plantão Único (Concluído)'
+  },
+  {
+    id: 'rev-04',
+    contractId: 'ctr-021',
+    freelancerId: 'fl-202',
+    employerName: 'Família Barcellos',
+    employerType: 'Empregadora Verificada',
+    rating: 5,
+    comment: 'Carlos conduziu o home care pós-AVC do meu pai com domínio técnico cirúrgico em traqueostomia e sondas. Pontual e sereno.',
+    date: '19/06/2026',
+    serviceCategory: 'Enfermagem Intensiva Domiciliar',
+    contractPeriod: '2 meses (Concluído)'
+  },
+  {
+    id: 'rev-05',
+    contractId: 'ctr-033',
+    freelancerId: 'fl-303',
+    employerName: 'Família Rocha Azevedo',
+    employerType: 'Empregadora Verificada',
+    rating: 5,
+    comment: 'A Luciana transformou a gestão da nossa casa. Prestação de contas transparente centavo por centavo e extrema discrição.',
+    date: '10/08/2026',
+    serviceCategory: 'Governança Residencial',
+    contractPeriod: '8 meses (Concluído)'
+  },
+  {
+    id: 'rev-06',
+    contractId: 'ctr-045',
+    freelancerId: 'fl-404',
+    employerName: 'Dra. Camila Nogueira',
+    employerType: 'Médica Pediatra & Mãe',
+    rating: 5,
+    comment: 'Cuidado neonatal impecável nos primeiros 90 dias do nosso bebê. Técnica, acolhedora e rigorosa com higiene.',
+    date: '30/07/2026',
+    serviceCategory: 'Cuidados Neonatais',
+    contractPeriod: '3 meses (Concluído)'
+  },
+  {
+    id: 'rev-07',
+    contractId: 'ctr-051',
+    freelancerId: 'fl-505',
+    employerName: 'Gabriel Siqueira',
+    employerType: 'Tutor Verificado',
+    rating: 5,
+    comment: 'Renata aplicou insulina e medicação pós-operatória no nosso Golden idoso com carinho veterinário extraordinário.',
+    date: '22/09/2026',
+    serviceCategory: 'Pet Home Care Veterinário',
+    contractPeriod: '15 dias (Concluído)'
+  },
+  {
+    id: 'rev-08',
+    contractId: 'ctr-058',
+    freelancerId: 'fl-606',
+    employerName: 'Família Arantes',
+    employerType: 'Contratante Residencial',
+    rating: 5,
+    comment: 'A Juliana trouxe alegria e estímulo cognitivo diário para nossa avó. Muito paciente e dedicada.',
+    date: '14/06/2026',
+    serviceCategory: 'Companhia & Estimulação Sênior',
+    contractPeriod: '4 meses (Concluído)'
   }
 ];
 
@@ -276,6 +336,81 @@ export const sampleSecretEvaluations: SecretEvaluation[] = [
     wouldRehirePrivately: true,
     privateNotes: 'Uso de celular no horário de trabalho apenas para preencher o diário médico ou falar com a supervisão familiar. Extremamente respeitosa com os demais funcionários da casa. Confiabilidade 100%.',
     hasVerifiedContract: true
+  },
+  {
+    id: 'sec-04',
+    contractId: 'ctr-021',
+    freelancerId: 'fl-202',
+    evaluatedAt: '20/06/2026',
+    relationshipDuration: '2 meses de plantão noturno',
+    honestyScore: 9.9,
+    punctualityScore: 10,
+    emotionalStabilityScore: 10,
+    discretionConfidentialityScore: 9.8,
+    reactionUnderCrisisScore: 10,
+    wouldRehirePrivately: true,
+    privateNotes: 'Postura hospitalar exemplar dentro da residência. Permaneceu acordado e vigilante em todos os plantões noturnos, mantendo o quarto estéril e organizado.',
+    hasVerifiedContract: true
+  },
+  {
+    id: 'sec-05',
+    contractId: 'ctr-033',
+    freelancerId: 'fl-303',
+    evaluatedAt: '12/08/2026',
+    relationshipDuration: '8 meses de gestão doméstica',
+    honestyScore: 10,
+    punctualityScore: 9.9,
+    emotionalStabilityScore: 9.7,
+    discretionConfidentialityScore: 10,
+    reactionUnderCrisisScore: 9.4,
+    wouldRehirePrivately: true,
+    privateNotes: 'Administrava cartão corporativo doméstico de alto limite com notas fiscais impecáveis. Discrição absoluta com visitas e agenda da família.',
+    hasVerifiedContract: true
+  },
+  {
+    id: 'sec-06',
+    contractId: 'ctr-045',
+    freelancerId: 'fl-404',
+    evaluatedAt: '02/08/2026',
+    relationshipDuration: '90 dias em período integral',
+    honestyScore: 10,
+    punctualityScore: 9.9,
+    emotionalStabilityScore: 10,
+    discretionConfidentialityScore: 10,
+    reactionUnderCrisisScore: 9.9,
+    wouldRehirePrivately: true,
+    privateNotes: 'Calma impressionante em madrugadas de cólica neonatal. Respeitou rigorosamente a privacidade do casal e protocolos pediátricos.',
+    hasVerifiedContract: true
+  },
+  {
+    id: 'sec-07',
+    contractId: 'ctr-051',
+    freelancerId: 'fl-505',
+    evaluatedAt: '25/09/2026',
+    relationshipDuration: '15 dias em viagem internacional da família',
+    honestyScore: 10,
+    punctualityScore: 9.8,
+    emotionalStabilityScore: 9.8,
+    discretionConfidentialityScore: 10,
+    reactionUnderCrisisScore: 9.9,
+    wouldRehirePrivately: true,
+    privateNotes: 'Ficou com as chaves do apartamento durante nossa viagem à Europa. Enviou vídeos diários e cuidou da medicação do nosso cão com rigor veterinário.',
+    hasVerifiedContract: true
+  },
+  {
+    id: 'sec-08',
+    contractId: 'ctr-058',
+    freelancerId: 'fl-606',
+    evaluatedAt: '18/06/2026',
+    relationshipDuration: '4 meses de acompanhamento diurno',
+    honestyScore: 9.8,
+    punctualityScore: 9.6,
+    emotionalStabilityScore: 9.7,
+    discretionConfidentialityScore: 9.8,
+    reactionUnderCrisisScore: 9.2,
+    wouldRehirePrivately: true,
+    privateNotes: 'Profissional doce, honesta e muito paciente. Excelente trato interpessoal com idosos em fase inicial de demência.',
+    hasVerifiedContract: true
   }
 ];
 
@@ -303,7 +438,7 @@ export const sampleContracts: Contract[] = [
       'Cláusula 3ª: Integridade e Inventário - Prestação de contas de quaisquer compras e zêlo pelos pertences.',
       'Cláusula 4ª: Aceite de Avaliação Dupla - As partes concordam com registro na plataforma TrustLink mediante finalização.'
     ],
-    securityHash: 'TL-CTR-2026-99214-SHA256',
+    securityHash: '8f4d9e2c1a7b60543219f0e8d7c6b5a4938271605f4e3d2c1b0a9f8e7d6c5b4a',
     employerSignedAt: '14/06/2026 19:42',
     freelancerSignedAt: '14/06/2026 20:15',
     canReview: true
@@ -328,14 +463,65 @@ export const sampleContracts: Contract[] = [
       'Cláusula 1ª: Plantão 12x36 noturno com vigilância de oxigenação e sinais vitais.',
       'Cláusula 2ª: Comunicação imediata por canal prioritário TrustLink em caso de intercorrência.'
     ],
-    securityHash: 'TL-CTR-2026-44012-SHA256',
+    securityHash: '3c2b1a0987654321fedcba9876543210abcdef1234567890abcdef1234567890',
     employerSignedAt: '19/10/2026 14:10',
     freelancerSignedAt: '19/10/2026 14:32',
-    canReview: false // Bloqueado: contrato ainda ativo!
+    canReview: false
+  },
+  {
+    id: 'ctr-021',
+    jobId: 'job-921',
+    jobTitle: 'Home Care Pós-AVC e Manejo de Traqueostomia',
+    employerId: 'emp-501',
+    employerName: 'Dra. Beatriz Fontana',
+    freelancerId: 'fl-202',
+    freelancerName: 'Carlos Eduardo Nogueira',
+    category: 'Técnica de Enfermagem',
+    type: 'plantao_urgencia',
+    status: 'completed',
+    startDate: '15/04/2026',
+    endDate: '15/06/2026',
+    agreedRate: 360,
+    rateType: 'daily',
+    locationAddress: 'Rua Bela Cintra, 1420 - Consolação, São Paulo/SP',
+    clauses: [
+      'Cláusula 1ª: Suporte ventilatório, aspiração traqueal estéril e monitorização multiparamétrica.',
+      'Cláusula 2ª: Sigilo médico e familiar irrestrito sob protocolo LGPD.'
+    ],
+    securityHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f901a2b3c4d5e6f708192a3b4c5d6e7f809',
+    employerSignedAt: '14/04/2026 18:00',
+    freelancerSignedAt: '14/04/2026 18:22',
+    canReview: true
+  },
+  {
+    id: 'ctr-033',
+    jobId: 'job-933',
+    jobTitle: 'Gestão Residencial Executiva & Governança',
+    employerId: 'emp-710',
+    employerName: 'Família Rocha Azevedo',
+    freelancerId: 'fl-303',
+    freelancerName: 'Luciana M. Barreto',
+    category: 'Governanta Doméstica',
+    type: 'mensal_fixo',
+    status: 'completed',
+    startDate: '05/01/2026',
+    endDate: '05/08/2026',
+    agreedRate: 5800,
+    rateType: 'monthly',
+    weeklyHours: 44,
+    locationAddress: 'Av. República do Líbano, 990 - Moema, São Paulo/SP',
+    clauses: [
+      'Cláusula 1ª: Coordenação de rotina doméstica, compras e prestação semanal de contas.',
+      'Cláusula 2ª: Confidencialidade absoluta sobre patrimônio e agenda familiar.'
+    ],
+    securityHash: 'f0e1d2c3b4a5968778695a4b3c2d1e0ff0e1d2c3b4a5968778695a4b3c2d1e0f',
+    employerSignedAt: '04/01/2026 11:15',
+    freelancerSignedAt: '04/01/2026 11:45',
+    canReview: true
   }
 ];
 
-export const sampleRadarFreelancers = [
+export const sampleRadarFreelancers: RadarFreelancer[] = [
   {
     id: 'fl-101',
     name: 'Maria Clara Silveira',
@@ -476,63 +662,6 @@ export const sampleFeedPosts: FeedPost[] = [
     endorsementsCount: 8,
     hasVerifiedExEmployerEndorsement: true,
     endorsedByEmployer: 'Dra. Beatriz Fontana (Ex-Empregadora): "Esse acompanhamento com carinho e método fez toda a diferença na recuperação da minha mãe."'
-  }
-];
-
-export const samplePipelineItems: JobPipelineItem[] = [
-  {
-    id: 'pipe-01',
-    candidateId: 'fl-101',
-    candidateName: 'Maria Clara Silveira',
-    candidateRole: 'Cuidadora Geriátrica & COREN-SP',
-    experienceYears: 8,
-    rating: 4.96,
-    distanceKm: 1.8,
-    stage: 'proposta',
-    salaryExpectation: 340,
-    badgesCount: 4,
-    appliedDate: 'Hoje às 08:30',
-    contractId: 'ctr-015'
-  },
-  {
-    id: 'pipe-02',
-    candidateId: 'fl-202',
-    candidateName: 'Carlos Eduardo Nogueira',
-    candidateRole: 'Técnico de Enfermagem & Socorrista',
-    experienceYears: 6,
-    rating: 4.91,
-    distanceKm: 3.4,
-    stage: 'entrevista',
-    salaryExpectation: 360,
-    badgesCount: 3,
-    appliedDate: 'Ontem às 14:15'
-  },
-  {
-    id: 'pipe-03',
-    candidateId: 'fl-303',
-    candidateName: 'Luciana M. Barreto',
-    candidateRole: 'Governanta Residencial de Confiança',
-    experienceYears: 10,
-    rating: 4.88,
-    distanceKm: 4.9,
-    stage: 'triagem',
-    salaryExpectation: 290,
-    badgesCount: 3,
-    appliedDate: 'Há 2 dias'
-  },
-  {
-    id: 'pipe-04',
-    candidateId: 'fl-101-hist',
-    candidateName: 'Maria Clara Silveira',
-    candidateRole: 'Cuidadora Pós-Cirúrgico',
-    experienceYears: 8,
-    rating: 4.96,
-    distanceKm: 1.8,
-    stage: 'contratado',
-    salaryExpectation: 340,
-    badgesCount: 4,
-    appliedDate: '15/06/2026',
-    contractId: 'ctr-012'
   }
 ];
 
@@ -967,6 +1096,7 @@ export const sampleJobAnnouncements: JobAnnouncement[] = [
     employerName: 'Dra. Beatriz Fontana (Família Fontana)',
     employerType: 'Residência Verificada · Membro Auditado TrustLink',
     location: 'Jardins, São Paulo · 1.8 km de você',
+    distanceKm: 1.8,
     workSchedule: 'Segunda a Sexta · 08h às 17h (44h semanais)',
     contractType: 'mensal_fixo',
     rateDescription: 'R$ 5.200,00 / mês',
@@ -1069,6 +1199,7 @@ export const sampleJobAnnouncements: JobAnnouncement[] = [
     employerName: 'Dra. Beatriz Fontana (Família Fontana)',
     employerType: 'Residência Verificada · Membro Auditado TrustLink',
     location: 'Higienópolis, São Paulo · 2.1 km de você',
+    distanceKm: 2.1,
     workSchedule: 'Plantão Noturno · 19h às 07h (Escala 12x36)',
     contractType: 'plantao_urgencia',
     rateDescription: 'R$ 380,00 / plantão',
@@ -1135,6 +1266,7 @@ export const sampleJobAnnouncements: JobAnnouncement[] = [
     employerName: 'Dra. Beatriz Fontana (Família Fontana)',
     employerType: 'Residência Verificada · Membro Auditado TrustLink',
     location: 'Pinheiros, São Paulo · 1.5 km de você',
+    distanceKm: 1.5,
     workSchedule: 'Plantões de Finais de Semana · Sábado e Domingo (08h às 20h)',
     contractType: 'diario',
     rateDescription: 'R$ 350,00 / diária',
@@ -1184,6 +1316,7 @@ export const sampleJobAnnouncements: JobAnnouncement[] = [
     employerName: 'Família Mendonça & Associados',
     employerType: 'Residência Verificada TrustLink',
     location: 'Bela Vista, São Paulo · 2.8 km de você',
+    distanceKm: 2.8,
     workSchedule: 'Diurno · 07h às 19h (Escala 12x36)',
     contractType: 'diario',
     rateDescription: 'R$ 370,00 / plantão',
@@ -1216,6 +1349,7 @@ export const sampleJobAnnouncements: JobAnnouncement[] = [
     employerName: 'Família Camargo',
     employerType: 'Residência Verificada TrustLink',
     location: 'Moema Pássaros, São Paulo · 5.1 km de você',
+    distanceKm: 5.1,
     workSchedule: 'Sexta às 18h até Domingo às 18h',
     contractType: 'diario',
     rateDescription: 'R$ 450,00 / diária',

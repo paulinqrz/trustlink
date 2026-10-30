@@ -1,20 +1,19 @@
 import React, { useState } from 'react';
 import { AuthUser } from '../../types';
-import { testUsers } from '../../data/mockData';
-import { 
-  ShieldCheck, 
-  Lock, 
-  Mail, 
-  Key, 
-  UserCheck, 
-  Briefcase, 
-  ArrowRight, 
-  CheckCircle2, 
+import { DEMO_PREVIEW_CARDS, trustlinkService } from '../../services/trustlinkService';
+import { ThemeToggleButton } from '../common/ThemeContext';
+import {
+  ShieldCheck,
+  Mail,
+  Key,
+  ArrowRight,
+  CheckCircle2,
   ArrowLeft,
   HeartHandshake,
   Home,
-  Clock,
-  Sparkles
+  UserPlus,
+  AlertCircle,
+  User,
 } from 'lucide-react';
 
 interface LoginViewProps {
@@ -23,235 +22,373 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onBackToHome }) => {
-  const [email, setEmail] = useState('maria.clara@trustlink.org');
-  const [password, setPassword] = useState('senha123');
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'freelancer' | 'employer'>('freelancer');
+  const [category, setCategory] = useState('Cuidadora de Idosos');
   const [rememberMe, setRememberMe] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleManualLogin = (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email.includes('beatriz')) {
-      onLogin(testUsers.employer);
-    } else {
-      onLogin(testUsers.freelancer);
+    setErrorMsg(null);
+    setSubmitting(true);
+    try {
+      if (mode === 'login') {
+        const user = await trustlinkService.loginWithPassword(email, password, rememberMe);
+        onLogin(user);
+      } else {
+        const user = await trustlinkService.registerAccount({
+          name,
+          email,
+          password,
+          role,
+          category: role === 'freelancer' ? category : undefined,
+        });
+        onLogin(user);
+      }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Falha na autenticação.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleSelectQuickUser = (role: 'freelancer' | 'employer') => {
-    const user = testUsers[role];
-    onLogin(user);
+  const handleSelectQuickUser = async (targetRole: 'freelancer' | 'employer') => {
+    setErrorMsg(null);
+    setSubmitting(true);
+    try {
+      const user = await trustlinkService.demoLogin(targetRole);
+      onLogin(user);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erro ao iniciar sessão de demonstração.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[#f3f2ef] flex flex-col justify-center py-10 px-4 sm:px-6 font-sans">
-      <div className="sm:mx-auto sm:w-full sm:max-w-xl text-center">
-        {onBackToHome && (
-          <button
-            onClick={onBackToHome}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 mb-4 font-semibold hover:underline"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Voltar para a Página Inicial
-          </button>
-        )}
-
-        {/* Logo and Header */}
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#0a66c2] text-white font-bold text-lg shadow-xs mb-3">
-          TL
+    <div className="min-h-screen bg-canvas dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col justify-center py-10 px-4 sm:px-6 font-sans transition-colors duration-200">
+      <div className="sm:mx-auto sm:w-full sm:max-w-xl">
+        <div className="flex items-center justify-between mb-6">
+          {onBackToHome ? (
+            <button
+              type="button"
+              onClick={onBackToHome}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold hover:underline cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Voltar para a Página Inicial
+            </button>
+          ) : (
+            <span />
+          )}
+          <ThemeToggleButton />
         </div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-          Acesse sua conta no TrustLink
-        </h1>
-        <p className="mt-1.5 text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-          A rede profissional de confiança para contratação segura de cuidadores de idosos, técnicos de enfermagem e serviços domésticos.
-        </p>
+
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-brand text-white font-bold text-lg shadow-xs mb-3">
+            TL
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+            Acesse sua conta no TrustLink
+          </h1>
+          <p className="mt-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+            Autenticação conectada ao banco SQLite local com hash Bcrypt, sessões rastreadas e tokens JWT.
+          </p>
+        </div>
       </div>
 
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-xl">
-        <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 shadow-xs space-y-6">
-          {/* Seção 1: Escolha do Perfil de Demonstração com Explicações Claras */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 sm:p-8 shadow-xs space-y-6 transition-colors">
+          {/* Escolha do Perfil de Demonstração */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
-              <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                Escolha um perfil para testar em 1 clique:
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                Acesso rápido de demonstração (1 clique):
               </span>
-              <span className="text-[11px] text-[#0a66c2] font-semibold">
-                Demonstração Interativa
+              <span className="text-[11px] text-brand dark:text-blue-400 font-semibold">
+                Sessão Real JWT + SQLite
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {/* Opção 1: Visão Cuidadora / Empregada */}
               <button
                 type="button"
-                onClick={() => handleSelectQuickUser('freelancer')}
-                className="p-4 text-left border-2 border-slate-200 hover:border-emerald-600 bg-slate-50 hover:bg-emerald-50/30 rounded-xl transition-all group flex flex-col justify-between shadow-2xs"
+                disabled={submitting}
+                onClick={() => void handleSelectQuickUser('freelancer')}
+                className="p-4 text-left border border-slate-200 dark:border-slate-700 hover:border-emerald-600 dark:hover:border-emerald-500 disabled:opacity-60 bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-50/30 dark:hover:bg-slate-800 rounded-xl transition-all duration-150 group flex flex-col justify-between shadow-2xs cursor-pointer"
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded">
-                      <HeartHandshake className="w-3 h-3 text-emerald-700" />
-                      Perfil Profissional & Especialista
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
+                      <HeartHandshake className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                      Perfil Profissional
                     </span>
-                    <ArrowRight className="w-4 h-4 text-emerald-600 group-hover:translate-x-1 transition-transform" />
+                    <ArrowRight className="w-4 h-4 text-emerald-600 dark:text-emerald-400 group-hover:translate-x-1 transition-transform" />
                   </div>
 
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Maria Clara Silveira
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      {DEMO_PREVIEW_CARDS.freelancer.name}
                     </h3>
-                    <p className="text-xs text-slate-600 font-medium">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
                       Cuidadora Geriátrica & Enfermagem
                     </p>
                   </div>
 
-                  {/* Explicação clara do que este perfil faz */}
-                  <div className="text-[11px] text-slate-600 space-y-1 pt-1.5 border-t border-slate-200/60 leading-relaxed">
+                  <div className="text-[11px] text-slate-600 dark:text-slate-400 space-y-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-700 leading-relaxed">
                     <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Exibe certidões e antecedentes criminais da Polícia Federal auditados.</span>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <span>Dossiê com selos auditados e plantão no Radar.</span>
                     </p>
                     <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Ativa status de plantão urgente no Radar 10km para cobrir faltas.</span>
-                    </p>
-                    <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Recebe propostas com contrato digital e termos de sigilo.</span>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <span>Assina contratos digitais pendentes no banco.</span>
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-3 pt-2 text-xs font-semibold text-emerald-700 group-hover:text-emerald-800">
-                  Acessar Área do Profissional →
+                <div className="mt-3 pt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                  Entrar como Profissional →
                 </div>
               </button>
 
-              {/* Opção 2: Contratante / Família */}
               <button
                 type="button"
-                onClick={() => handleSelectQuickUser('employer')}
-                className="p-4 text-left border-2 border-slate-200 hover:border-[#0a66c2] bg-slate-50 hover:bg-blue-50/30 rounded-xl transition-all group flex flex-col justify-between shadow-2xs"
+                disabled={submitting}
+                onClick={() => void handleSelectQuickUser('employer')}
+                className="p-4 text-left border border-slate-200 dark:border-slate-700 hover:border-brand dark:hover:border-blue-400 disabled:opacity-60 bg-slate-50 dark:bg-slate-800/60 hover:bg-blue-50/30 dark:hover:bg-slate-800 rounded-xl transition-all duration-150 group flex flex-col justify-between shadow-2xs cursor-pointer"
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#0a66c2] bg-blue-100/80 px-2 py-0.5 rounded">
-                      <Home className="w-3 h-3 text-[#0a66c2]" />
-                      Perfil Contratante & Família
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-brand dark:text-blue-400">
+                      <Home className="w-3.5 h-3.5" />
+                      Perfil Contratante
                     </span>
-                    <ArrowRight className="w-4 h-4 text-[#0a66c2] group-hover:translate-x-1 transition-transform" />
+                    <ArrowRight className="w-4 h-4 text-brand dark:text-blue-400 group-hover:translate-x-1 transition-transform" />
                   </div>
 
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Dra. Beatriz Fontana
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      {DEMO_PREVIEW_CARDS.employer.name}
                     </h3>
-                    <p className="text-xs text-slate-600 font-medium">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 font-medium">
                       Família Contratante Auditada
                     </p>
                   </div>
 
-                  {/* Explicação clara do que este perfil faz */}
-                  <div className="text-[11px] text-slate-600 space-y-1 pt-1.5 border-t border-slate-200/60 leading-relaxed">
+                  <div className="text-[11px] text-slate-600 dark:text-slate-400 space-y-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-700 leading-relaxed">
                     <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3 h-3 text-[#0a66c2] shrink-0 mt-0.5" />
-                      <span>Catálogo completo de cuidadores e especialistas certificados.</span>
+                      <CheckCircle2 className="w-3 h-3 text-brand dark:text-blue-400 shrink-0 mt-0.5" />
+                      <span>Acesso exclusivo à Rede Sigilosa no servidor.</span>
                     </p>
                     <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3 h-3 text-[#0a66c2] shrink-0 mt-0.5" />
-                      <span>Acesso exclusivo à Rede Sigilosa com notas de honestidade e discrição.</span>
-                    </p>
-                    <p className="flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3 h-3 text-[#0a66c2] shrink-0 mt-0.5" />
-                      <span>Gerencia vagas de plantão e pipeline de contratação em Kanban.</span>
+                      <CheckCircle2 className="w-3 h-3 text-brand dark:text-blue-400 shrink-0 mt-0.5" />
+                      <span>Emite contratos SHA-256 e gerencia vagas.</span>
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-3 pt-2 text-xs font-semibold text-[#0a66c2] group-hover:text-[#004182]">
-                  Acessar Área do Contratante →
+                <div className="mt-3 pt-2 text-xs font-semibold text-brand dark:text-blue-400">
+                  Entrar como Contratante →
                 </div>
               </button>
             </div>
           </div>
 
-          <div className="relative flex py-1 items-center">
-            <div className="grow border-t border-slate-200"></div>
-            <span className="shrink mx-3 text-slate-400 text-xs font-semibold">
-              Ou entre com e-mail cadastrado
-            </span>
-            <div className="grow border-t border-slate-200"></div>
+          {/* Alternador Login / Cadastro */}
+          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('login');
+                setErrorMsg(null);
+              }}
+              className={`py-2 rounded-md transition-colors cursor-pointer ${
+                mode === 'login'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              Entrar com Senha
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('register');
+                setErrorMsg(null);
+              }}
+              className={`py-2 rounded-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                mode === 'register'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Criar Nova Conta
+            </button>
           </div>
 
-          {/* Seção 2: Formulário Tradicional com Linguagem Amigável */}
-          <form onSubmit={handleManualLogin} className="space-y-4 text-xs">
+          {errorMsg && (
+            <div
+              role="alert"
+              className="p-3 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-lg text-xs text-rose-800 dark:text-rose-200 flex items-start gap-2"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={(e) => void handleManualSubmit(e)} className="space-y-4 text-xs">
+            {mode === 'register' && (
+              <>
+                <div>
+                  <label htmlFor="reg-name" className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                    Nome completo
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      id="reg-name"
+                      type="text"
+                      required
+                      minLength={3}
+                      placeholder="Ex: Ana Paula Ribeiro"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-brand focus:outline-hidden text-xs text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="reg-role" className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                      Tipo de Perfil
+                    </label>
+                    <select
+                      id="reg-role"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value as 'freelancer' | 'employer')}
+                      className="w-full px-3 py-2.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="freelancer">Profissional / Cuidador(a)</option>
+                      <option value="employer">Família / Contratante</option>
+                    </select>
+                  </div>
+
+                  {role === 'freelancer' && (
+                    <div>
+                      <label htmlFor="reg-category" className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                        Especialidade Principal
+                      </label>
+                      <select
+                        id="reg-category"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100"
+                      >
+                        <option value="Cuidadora de Idosos">Cuidador(a) de Idosos</option>
+                        <option value="Técnica de Enfermagem">Técnico(a) de Enfermagem</option>
+                        <option value="Babá / Cuidadora Infantil">Babá / Cuidado Infantil</option>
+                        <option value="Governanta Doméstica">Governanta Doméstica</option>
+                        <option value="Pet Sitter Especializado">Pet Sitter Especializado</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
             <div>
-              <label className="block font-semibold text-slate-800 mb-1">
-                E-mail cadastrado
+              <label htmlFor="login-email" className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                E-mail de acesso
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
+                  id="login-email"
                   type="email"
                   required
+                  placeholder="Ex: maria.clara@trustlink.org ou beatriz.fontana@hospital.org"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0a66c2] focus:outline-hidden text-xs text-slate-900"
+                  className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-brand focus:outline-hidden text-xs text-slate-900 dark:text-slate-100"
                 />
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Use <strong>maria.clara@trustlink.org</strong> ou <strong>beatriz.fontana@hospital.org</strong>
-              </p>
+              {mode === 'login' && (
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+                  Contas demo no SQLite: <strong>maria.clara@trustlink.org</strong> ou{' '}
+                  <strong>beatriz.fontana@hospital.org</strong> · Senha: <code>trustlink123</code>
+                </p>
+              )}
             </div>
 
             <div>
-              <label className="block font-semibold text-slate-800 mb-1">
-                Senha de acesso
+              <label htmlFor="login-password" className="block font-semibold text-slate-800 dark:text-slate-200 mb-1">
+                Senha {mode === 'register' ? '(mínimo 6 caracteres)' : ''}
               </label>
               <div className="relative">
                 <Key className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
+                  id="login-password"
                   type="password"
                   required
+                  minLength={mode === 'register' ? 6 : 4}
+                  placeholder={
+                    mode === 'login'
+                      ? 'Digite sua senha (ex: trustlink123)'
+                      : 'Crie uma senha segura'
+                  }
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0a66c2] focus:outline-hidden text-xs text-slate-900"
+                  className="w-full pl-9 pr-3 py-2.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-brand focus:outline-hidden text-xs text-slate-900 dark:text-slate-100"
                 />
               </div>
             </div>
 
-            {/* Explicação da Manutenção de Sessão */}
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1">
-              <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="rounded border-slate-300 text-[#0a66c2] focus:ring-[#0a66c2]"
-                />
-                <span>Lembrar de mim neste dispositivo (Sessão contínua de 30 dias)</span>
-              </label>
-              <p className="text-[11px] text-slate-500 pl-5 leading-relaxed">
-                Você não será deslogado inesperadamente ao fechar a aba ou navegar pela plataforma.
-              </p>
-            </div>
+            {mode === 'login' && (
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 space-y-1">
+                <label
+                  htmlFor="login-remember"
+                  className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-200 font-medium"
+                >
+                  <input
+                    id="login-remember"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="rounded border-slate-300 dark:border-slate-600 text-brand focus:ring-brand"
+                  />
+                  <span>Manter sessão conectada (Refresh Cookie HttpOnly + JWT)</span>
+                </label>
+              </div>
+            )}
 
             <button
               type="submit"
-              className="w-full py-2.5 px-4 font-semibold text-white bg-[#0a66c2] hover:bg-[#004182] rounded-lg transition-colors shadow-xs text-sm"
+              disabled={submitting}
+              className="w-full py-2.5 px-4 font-semibold text-white bg-brand hover:bg-brand-hover disabled:opacity-60 rounded-lg transition-colors shadow-xs text-sm cursor-pointer"
             >
-              Entrar na Plataforma
+              {submitting
+                ? 'Autenticando no servidor...'
+                : mode === 'login'
+                ? 'Entrar na Plataforma'
+                : 'Criar Conta no TrustLink'}
             </button>
           </form>
 
-          {/* Garantias de Segurança e Privacidade no Rodapé */}
-          <div className="pt-3 border-t border-slate-100 space-y-1 text-center">
-            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-700">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Ambiente Protegido e Confiável</span>
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1 text-center">
+            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Ambiente Protegido no Servidor (LGPD + Bcrypt + SQLite)</span>
             </div>
-            <p className="text-[11px] text-slate-500 max-w-md mx-auto leading-relaxed">
-              Todos os relatos e avaliações são confidenciais e sigilosos para manter a igualdade de oportunidades. 
-              Apenas contratantes com serviços concluídos podem registrar avaliações.
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+              Relatos comportamentais nunca trafegam para contas de profissionais; o sigilo é aplicado diretamente na API.
             </p>
           </div>
         </div>

@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { cn } from '../../lib/utils';
-import './TextStream.css';
 
 export interface TextStreamProps {
   items?: string[];
@@ -49,8 +48,9 @@ export const TextStream: React.FC<TextStreamProps> = ({
     media.add("(prefers-reduced-motion: no-preference)", () => {
       const baseSpeed = 0.6;
       const maxBoost = 12;
-      const scrollTarget: any = (scroller && 'current' in scroller ? scroller.current : scroller) ?? window;
-      const readScroll = () => (scrollTarget === window || !scrollTarget ? window.scrollY : scrollTarget.scrollTop || 0);
+      const resolvedScroller = scroller && 'current' in scroller ? scroller.current : scroller;
+      const scrollTarget: HTMLElement | Window = resolvedScroller ?? window;
+      const readScroll = () => (scrollTarget === window ? window.scrollY : (scrollTarget as HTMLElement).scrollTop || 0);
       let lastScrollY = readScroll();
 
       const startAnimation = () => {
@@ -67,7 +67,7 @@ export const TextStream: React.FC<TextStreamProps> = ({
         gsap.set(track, { y: metricsRef.current.currentY });
       };
 
-      const tick = (_: any, deltaTime: number) => {
+      const tick = (_time: number, deltaTime: number) => {
         const { distance } = metricsRef.current;
         if (!distance) return;
 
@@ -110,18 +110,14 @@ export const TextStream: React.FC<TextStreamProps> = ({
       ro.observe(content);
       ro.observe(container);
       window.addEventListener("resize", startAnimation);
-      if (scrollTarget && scrollTarget.addEventListener) {
-        scrollTarget.addEventListener("wheel", handleWheel, { passive: true });
-        scrollTarget.addEventListener("scroll", handleScroll, { passive: true });
-      }
+      scrollTarget.addEventListener("wheel", handleWheel as EventListener, { passive: true });
+      scrollTarget.addEventListener("scroll", handleScroll, { passive: true });
 
       return () => {
         ro.disconnect();
         window.removeEventListener("resize", startAnimation);
-        if (scrollTarget && scrollTarget.removeEventListener) {
-          scrollTarget.removeEventListener("wheel", handleWheel);
-          scrollTarget.removeEventListener("scroll", handleScroll);
-        }
+        scrollTarget.removeEventListener("wheel", handleWheel as EventListener);
+        scrollTarget.removeEventListener("scroll", handleScroll);
         if (scrollTimeoutRef.current) window.clearTimeout(scrollTimeoutRef.current);
         gsap.ticker.remove(tick);
       };
@@ -134,7 +130,7 @@ export const TextStream: React.FC<TextStreamProps> = ({
 
   return (
     <div 
-      className={cn("obsidian-text-stream font-sans text-slate-900 select-none", className)} 
+      className={cn("obsidian-text-stream font-sans text-slate-900 dark:text-slate-100 select-none", className)} 
       style={{ 
         display: "flex", 
         flexDirection: "column", 

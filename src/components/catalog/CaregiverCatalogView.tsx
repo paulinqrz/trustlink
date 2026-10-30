@@ -1,36 +1,45 @@
-import React, { useState } from 'react';
-import { FreelancerProfile, AuthUser } from '../../types';
-import { sampleCaregiverProfiles } from '../../data/mockData';
+import React, { useMemo, useState } from 'react';
+import { FreelancerProfile } from '../../types';
+import { getInitials } from '../../services/trustlinkService';
 import { TextStream } from '../common/TextStream';
-import { 
-  ShieldCheck, 
-  Search, 
-  Filter, 
-  Star, 
-  MapPin, 
-  Clock, 
-  CheckCircle2, 
-  Radio, 
-  UserCheck, 
-  Award, 
-  HeartHandshake, 
-  Send, 
-  Bookmark, 
-  ArrowRight,
-  Sparkles,
-  Info
+import {
+  ShieldCheck,
+  Search,
+  Star,
+  MapPin,
+  CheckCircle2,
+  Radio,
+  UserCheck,
+  Award,
+  Send,
+  Bookmark,
+  Info,
 } from 'lucide-react';
 
+const CATALOG_SPECIALTIES = [
+  'Cuidados Geriátricos & Alzheimer',
+  'Técnicos de Enfermagem Domiciliar',
+  'Acompanhamento Pós-Cirúrgico',
+  'Babás Especialistas em Neonatais',
+  'Governança & Gestão Residencial',
+  'Pet Sitter com Formação Veterinária',
+];
+
 interface CaregiverCatalogViewProps {
-  currentUser?: AuthUser | null;
+  profiles: FreelancerProfile[];
   onSelectCaregiver: (profile: FreelancerProfile) => void;
-  onOpenProposal: (candidateName: string, role: string, rate: number) => void;
+  onOpenProposal: (
+    freelancerId: string,
+    candidateName: string,
+    role: string,
+    rate: number
+  ) => void;
 }
 
 export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
-  currentUser,
+  profiles,
   onSelectCaregiver,
-  onOpenProposal
+  onOpenProposal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -39,118 +48,143 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
   const [favorites, setFavorites] = useState<string[]>(['fl-101']);
   const [expandedBioId, setExpandedBioId] = useState<string | null>(null);
 
-  const categories = [
-    { key: 'all', label: 'Todos os Profissionais', count: sampleCaregiverProfiles.length },
-    { key: 'Cuidadora de Idosos', label: 'Cuidado de Idosos & Alzheimer', count: 2 },
-    { key: 'Técnica de Enfermagem', label: 'Enfermagem & Pós-Cirúrgico', count: 1 },
-    { key: 'Babá / Cuidadora Infantil', label: 'Babás & Neonatal', count: 1 },
-    { key: 'Governanta Doméstica', label: 'Governança & Gestão', count: 1 },
-    { key: 'Pet Sitter Especializado', label: 'Pet Care Veterinário', count: 1 },
-  ];
+  const urgencyCount = useMemo(
+    () => profiles.filter((p) => p.availability === 'urgency').length,
+    [profiles]
+  );
 
-  const filteredCaregivers = sampleCaregiverProfiles.filter(caregiver => {
-    // Search
-    const matchesSearch = 
-      caregiver.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caregiver.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caregiver.neighborhood.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      caregiver.bio.toLowerCase().includes(searchTerm.toLowerCase());
+  const categories = useMemo(() => {
+    const countCat = (catKey: string) =>
+      profiles.filter((p) => p.category === catKey).length;
 
-    // Category
-    const matchesCategory = selectedCategory === 'all' || caregiver.category === selectedCategory;
+    return [
+      { key: 'all', label: 'Todos os Profissionais', count: profiles.length },
+      {
+        key: 'Cuidadora de Idosos',
+        label: 'Cuidado de Idosos & Alzheimer',
+        count: countCat('Cuidadora de Idosos'),
+      },
+      {
+        key: 'Técnica de Enfermagem',
+        label: 'Enfermagem & Pós-Cirúrgico',
+        count: countCat('Técnica de Enfermagem'),
+      },
+      {
+        key: 'Babá / Cuidadora Infantil',
+        label: 'Babás & Neonatal',
+        count: countCat('Babá / Cuidadora Infantil'),
+      },
+      {
+        key: 'Governanta Doméstica',
+        label: 'Governança & Gestão',
+        count: countCat('Governanta Doméstica'),
+      },
+      {
+        key: 'Pet Sitter Especializado',
+        label: 'Pet Care Veterinário',
+        count: countCat('Pet Sitter Especializado'),
+      },
+    ];
+  }, [profiles]);
 
-    // Urgency filter
-    const matchesUrgency = !onlyUrgency || caregiver.availability === 'urgency';
+  const filteredCaregivers = useMemo(() => {
+    const query = searchTerm.toLowerCase();
+    return profiles.filter((caregiver) => {
+      const matchesSearch =
+        caregiver.fullName.toLowerCase().includes(query) ||
+        caregiver.title.toLowerCase().includes(query) ||
+        caregiver.neighborhood.toLowerCase().includes(query) ||
+        caregiver.bio.toLowerCase().includes(query);
 
-    // Council filter (COREN or CRMV)
-    const matchesCouncil = !onlyCouncilBadge || caregiver.badges.some(b => b.type === 'nursing_council');
+      const matchesCategory =
+        selectedCategory === 'all' || caregiver.category === selectedCategory;
+      const matchesUrgency = !onlyUrgency || caregiver.availability === 'urgency';
+      const matchesCouncil =
+        !onlyCouncilBadge || caregiver.badges.some((b) => b.type === 'nursing_council');
 
-    return matchesSearch && matchesCategory && matchesUrgency && matchesCouncil;
-  });
+      return matchesSearch && matchesCategory && matchesUrgency && matchesCouncil;
+    });
+  }, [profiles, searchTerm, selectedCategory, onlyUrgency, onlyCouncilBadge]);
 
-  const toggleFavorite = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setFavorites(prev => 
-      prev.includes(id) ? prev.filter(fId => fId !== id) : [...prev, id]
+  const toggleFavorite = (id: string) => {
+    setFavorites((prev) =>
+      prev.includes(id) ? prev.filter((fId) => fId !== id) : [...prev, id]
     );
   };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto px-4 py-6 font-sans">
-      {/* Hero Header with requested TextStream reel animation */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 shadow-xs">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 sm:p-8 shadow-xs transition-colors">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
           <div className="lg:col-span-7 space-y-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-100 rounded-full text-xs font-semibold text-slate-700">
-              <ShieldCheck className="w-4 h-4 text-[#0a66c2]" />
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-md text-xs font-semibold text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+              <ShieldCheck className="w-4 h-4 text-brand dark:text-sky-400" />
               Catálogo Oficial de Profissionais Verificados
             </div>
-            
-            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
               Banco de Cuidadores & Talentos de Confiança
             </h1>
 
-            <p className="text-sm text-slate-600 leading-relaxed max-w-xl">
-              Navegue pelos profissionais auditados da TrustLink. Todos possuem antecedentes checados 
-              pela Polícia Federal, checagem facial biométrica e acesso liberado à <strong>Rede Sigilosa de Avaliações</strong> para contratantes com residência verificada.
+            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed max-w-xl">
+              Navegue pelos profissionais auditados da TrustLink. Todos possuem antecedentes checados
+              pela Polícia Federal, checagem facial biométrica e acesso liberado à{' '}
+              <strong className="text-slate-900 dark:text-white">Rede Sigilosa de Avaliações</strong> para contratantes com residência verificada.
             </p>
 
-            <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-slate-500">
-              <span className="flex items-center gap-1.5 text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-slate-600 dark:text-slate-400">
+              <span className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-semibold bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800/70">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 100% Antecedentes Criminais Limpos
               </span>
-              <span className="flex items-center gap-1.5 text-blue-800 font-semibold bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
-                <Radio className="w-3.5 h-3.5 text-blue-600" />
-                4 Profissionais no Radar de Urgência
+              <span className="flex items-center gap-1.5 text-blue-800 dark:text-sky-300 font-semibold bg-blue-50 dark:bg-sky-950/60 px-2.5 py-1 rounded-md border border-blue-200 dark:border-sky-800/70 tabular-nums">
+                <Radio className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400" />
+                {urgencyCount} Profissional(is) no Radar de Urgência
               </span>
             </div>
           </div>
 
-          {/* Interactive Reel Animation requested by user */}
-          <div className="lg:col-span-5 bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200/80 rounded-xl p-4 flex flex-col items-center justify-center text-center shadow-2xs">
+          <div className="lg:col-span-5 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 flex flex-col items-center justify-center text-center shadow-2xs">
             <TextStream
-              items={[
-                "Cuidados Geriátricos & Alzheimer",
-                "Técnicos de Enfermagem Domiciliar",
-                "Acompanhamento Pós-Cirúrgico",
-                "Babás Especialistas em Neonatais",
-                "Governança & Gestão Residencial",
-                "Pet Sitter com Formação Veterinária"
-              ]}
+              items={CATALOG_SPECIALTIES}
               prefix="Especialidades Disponíveis"
               height="150px"
               fontSize="clamp(1.15rem, 2.2vw, 1.45rem)"
             />
-            <p className="text-[11px] text-slate-500 mt-1">
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
               Role a página para acelerar a rolagem contínua
             </p>
           </div>
         </div>
       </div>
 
-      {/* Search and Filters Section */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-        {/* Search input & direct toggles */}
+      {/* Search and Filters */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs space-y-4 transition-colors">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-            <input 
+            <label htmlFor="catalog-search" className="sr-only">
+              Buscar cuidadores
+            </label>
+            <Search className="w-4 h-4 text-slate-500 dark:text-slate-400 absolute left-3.5 top-3" />
+            <input
+              id="catalog-search"
               type="text"
               placeholder="Buscar por nome, especialidade, bairro ou procedimento (ex: curativo, Alzheimer, Moema)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0a66c2] focus:bg-white transition-all placeholder:text-slate-400"
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-brand focus:bg-white dark:focus:bg-slate-950 transition-all placeholder:text-slate-500 dark:placeholder:text-slate-500"
             />
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setOnlyUrgency(!onlyUrgency)}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
-                onlyUrgency 
-                  ? 'bg-amber-500 text-white border-amber-600' 
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              type="button"
+              aria-pressed={onlyUrgency}
+              onClick={() => setOnlyUrgency((prev) => !prev)}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                onlyUrgency
+                  ? 'bg-amber-600 text-white border-amber-700'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
               }`}
             >
               <Radio className="w-3.5 h-3.5" />
@@ -158,11 +192,13 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
             </button>
 
             <button
-              onClick={() => setOnlyCouncilBadge(!onlyCouncilBadge)}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 ${
-                onlyCouncilBadge 
-                  ? 'bg-emerald-700 text-white border-emerald-800' 
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+              type="button"
+              aria-pressed={onlyCouncilBadge}
+              onClick={() => setOnlyCouncilBadge((prev) => !prev)}
+              className={`px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                onlyCouncilBadge
+                  ? 'bg-emerald-700 text-white border-emerald-800'
+                  : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
               }`}
             >
               <Award className="w-3.5 h-3.5" />
@@ -171,22 +207,26 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
           </div>
         </div>
 
-        {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
           {categories.map((cat) => (
             <button
               key={cat.key}
+              type="button"
               onClick={() => setSelectedCategory(cat.key)}
-              className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
                 selectedCategory === cat.key
-                  ? 'bg-[#0a66c2] text-white font-semibold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                  ? 'bg-brand text-white font-semibold'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <span>{cat.label}</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                selectedCategory === cat.key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
-              }`}>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded-md tabular-nums ${
+                  selectedCategory === cat.key
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                }`}
+              >
                 {cat.count}
               </span>
             </button>
@@ -194,14 +234,14 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
         </div>
       </div>
 
-      {/* Results Count Banner */}
-      <div className="flex items-center justify-between text-xs text-slate-500 px-1">
-        <span>
-          Exibindo <strong>{filteredCaregivers.length}</strong> cuidadores e especialistas disponíveis em São Paulo
+      {/* Results Count */}
+      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 px-1">
+        <span className="tabular-nums">
+          Exibindo <strong className="text-slate-900 dark:text-white">{filteredCaregivers.length}</strong> cuidador(es) em São Paulo
         </span>
-        <span className="flex items-center gap-1 text-slate-600">
-          <Info className="w-3.5 h-3.5 text-[#0a66c2]" />
-          Clique em <strong>Ver Perfil Completo</strong> para consultar o dossiê e a Rede Sigilosa
+        <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+          <Info className="w-3.5 h-3.5 text-brand dark:text-sky-400" />
+          Clique em <strong className="text-slate-900 dark:text-white">Ver Perfil Completo</strong> para consultar o dossiê e a Rede Sigilosa
         </span>
       </div>
 
@@ -212,113 +252,122 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
           const isBioExpanded = expandedBioId === caregiver.id;
 
           return (
-            <div 
+            <div
               key={caregiver.id}
-              className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs hover:border-[#0a66c2] transition-all flex flex-col justify-between group"
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs hover:border-brand dark:hover:border-sky-500 hover:-translate-y-0.5 hover:shadow-md transition-all flex flex-col justify-between group"
             >
               <div className="space-y-4">
-                {/* Header: Avatar, Name, Availability, Favorite */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0 relative">
-                      {caregiver.fullName.split(' ').map(n => n[0]).slice(0, 2).join('')}
-                      <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></span>
+                    <div className="w-12 h-12 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0 relative border border-transparent dark:border-slate-700">
+                      {getInitials(caregiver.fullName)}
+                      <span
+                        className={`absolute -bottom-1 -right-1 w-4 h-4 border-2 border-white dark:border-slate-900 rounded-full ${
+                          caregiver.availability === 'offline'
+                            ? 'bg-slate-400'
+                            : caregiver.availability === 'urgency'
+                            ? 'bg-amber-500'
+                            : 'bg-emerald-500'
+                        }`}
+                      ></span>
                     </div>
 
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <h3 className="font-bold text-slate-900 text-base leading-snug group-hover:text-[#0a66c2] transition-colors">
+                        <h3 className="font-bold text-slate-900 dark:text-white text-base leading-snug group-hover:text-brand dark:group-hover:text-sky-400 transition-colors">
                           {caregiver.fullName}
                         </h3>
                         <span title="Verificado TrustLink">
-                          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 font-medium">
-                        {caregiver.title}
-                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 font-medium">{caregiver.title}</p>
                     </div>
                   </div>
 
                   <button
-                    onClick={(e) => toggleFavorite(caregiver.id, e)}
-                    className={`p-1.5 rounded-lg border transition-colors ${
-                      isFav 
-                        ? 'text-amber-500 bg-amber-50 border-amber-200' 
-                        : 'text-slate-400 bg-slate-50 border-slate-200 hover:text-slate-600'
+                    type="button"
+                    onClick={() => toggleFavorite(caregiver.id)}
+                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                      isFav
+                        ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'
+                        : 'text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:text-slate-700 dark:hover:text-slate-200'
                     }`}
                     title={isFav ? 'Remover dos favoritos' : 'Salvar nos favoritos'}
+                    aria-label={isFav ? 'Remover dos favoritos' : 'Salvar nos favoritos'}
                   >
                     <Bookmark className="w-4 h-4" fill={isFav ? 'currentColor' : 'none'} />
                   </button>
                 </div>
 
-                {/* Location and Availability Badge */}
                 <div className="flex items-center justify-between text-xs pt-1">
-                  <span className="flex items-center gap-1 text-slate-500">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+                    <MapPin className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                     {caregiver.neighborhood}
                   </span>
 
                   {caregiver.availability === 'urgency' ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
-                      <Radio className="w-3 h-3 text-amber-600 animate-pulse" />
-                      Plantão Urgente (10km)
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/70 px-2 py-0.5 rounded-md tabular-nums">
+                      <Radio className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-pulse" />
+                      Plantão Urgente ({caregiver.urgencyRadiusKm}km)
+                    </span>
+                  ) : caregiver.availability === 'online' ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/70 px-2 py-0.5 rounded-md">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                      Disponível
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      Disponível
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md">
+                      Offline
                     </span>
                   )}
                 </div>
 
-                {/* Metrics: Rating, Experience, Rates */}
-                <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100 text-xs">
+                <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50 dark:bg-slate-950/80 rounded-lg border border-slate-100 dark:border-slate-800 text-xs tabular-nums">
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Avaliação Pública</span>
+                    <span className="text-slate-600 dark:text-slate-400 block text-[11px]">Avaliação Pública</span>
                     <div className="flex items-center gap-1 mt-0.5">
                       <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                      <span className="font-bold text-slate-900">{caregiver.publicRating}</span>
-                      <span className="text-slate-500">({caregiver.completedContractsCount} plantões)</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{caregiver.publicRating}</span>
+                      <span className="text-slate-600 dark:text-slate-400">
+                        ({caregiver.completedContractsCount} plantões)
+                      </span>
                     </div>
                   </div>
 
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Valor de Referência</span>
-                    <div className="font-bold text-slate-900 mt-0.5">
-                      R$ {caregiver.dailyRate}<span className="text-[11px] font-normal text-slate-500">/diária</span>
+                    <span className="text-slate-600 dark:text-slate-400 block text-[11px]">Valor de Referência</span>
+                    <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                      R$ {caregiver.dailyRate}
+                      <span className="text-[11px] font-normal text-slate-600 dark:text-slate-400">/diária</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Badges List */}
                 <div className="space-y-1.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 block">
                     Selos de Integridade Auditados
                   </span>
                   <div className="flex flex-wrap gap-1">
                     {caregiver.badges.map((badge) => (
-                      <span 
+                      <span
                         key={badge.id}
-                        className="text-[11px] font-medium text-emerald-800 bg-emerald-50/80 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1"
+                        className="text-[11px] font-medium text-emerald-800 dark:text-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/70 px-2 py-0.5 rounded-md flex items-center gap-1"
                       >
-                        <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                         {badge.title.replace(' Verificados', '').replace(' Regularizada', '')}
                       </span>
                     ))}
                   </div>
                 </div>
 
-                {/* Bio Snippet */}
-                <div className="text-xs text-slate-600 leading-relaxed">
-                  <p className={isBioExpanded ? '' : 'line-clamp-2'}>
-                    {caregiver.bio}
-                  </p>
+                <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  <p className={isBioExpanded ? '' : 'line-clamp-2'}>{caregiver.bio}</p>
                   {caregiver.bio.length > 90 && (
                     <button
+                      type="button"
                       onClick={() => setExpandedBioId(isBioExpanded ? null : caregiver.id)}
-                      className="text-[11px] font-semibold text-[#0a66c2] hover:underline mt-1 block"
+                      className="text-[11px] font-semibold text-brand dark:text-sky-400 hover:underline mt-1 block cursor-pointer"
                     >
                       {isBioExpanded ? 'Recolher resumo' : 'Ler mais...'}
                     </button>
@@ -326,19 +375,27 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="pt-4 mt-4 border-t border-slate-100 flex items-center gap-2">
+              <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => onSelectCaregiver(caregiver)}
-                  className="flex-1 py-2 px-3 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2 px-3 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <UserCheck className="w-3.5 h-3.5 text-slate-600" />
+                  <UserCheck className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
                   Ver Perfil Completo
                 </button>
 
                 <button
-                  onClick={() => onOpenProposal(caregiver.fullName, caregiver.title, caregiver.dailyRate)}
-                  className="py-2 px-3 text-xs font-semibold text-white bg-[#0a66c2] hover:bg-[#004182] rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                  type="button"
+                  onClick={() =>
+                    onOpenProposal(
+                      caregiver.id,
+                      caregiver.fullName,
+                      caregiver.title,
+                      caregiver.dailyRate
+                    )
+                  }
+                  className="py-2 px-3 text-xs font-semibold text-white bg-brand hover:bg-brand-hover rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                   title="Emitir proposta de plantão formal"
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -351,18 +408,19 @@ export const CaregiverCatalogView: React.FC<CaregiverCatalogViewProps> = ({
       </div>
 
       {filteredCaregivers.length === 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center space-y-3">
-          <p className="text-slate-500 text-sm">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-12 text-center space-y-3">
+          <p className="text-slate-600 dark:text-slate-400 text-sm">
             Nenhum cuidador encontrado com os filtros selecionados.
           </p>
           <button
+            type="button"
             onClick={() => {
               setSearchTerm('');
               setSelectedCategory('all');
               setOnlyUrgency(false);
               setOnlyCouncilBadge(false);
             }}
-            className="text-xs font-semibold text-[#0a66c2] underline hover:text-[#004182]"
+            className="text-xs font-semibold text-brand dark:text-sky-400 underline hover:text-brand-hover cursor-pointer"
           >
             Limpar todos os filtros
           </button>

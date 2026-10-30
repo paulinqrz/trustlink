@@ -1,20 +1,18 @@
-import React, { useState } from 'react';
-import { 
-  ShieldCheck, 
-  UserCheck, 
-  Radio, 
-  Briefcase, 
-  Sparkles, 
-  LogOut, 
-  ChevronDown, 
-  Users, 
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  UserCheck,
+  Radio,
+  Briefcase,
+  Sparkles,
+  LogOut,
+  ChevronDown,
+  Users,
   SwitchCamera,
-  FileCheck2,
-  Search
 } from 'lucide-react';
 import { AuthUser } from '../../types';
+import { ThemeToggleButton } from '../common/ThemeContext';
 
-export type ActiveTab = 'catalog' | 'freelancer' | 'radar' | 'employer' | 'feed' | 'tech_lead' | 'jobs';
+export type ActiveTab = 'catalog' | 'freelancer' | 'radar' | 'employer' | 'feed' | 'jobs';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -24,200 +22,274 @@ interface NavbarProps {
   onLogout: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ 
-  activeTab, 
-  onTabChange, 
-  currentUser,
-  onSwitchUser,
-  onLogout
+interface TabButtonProps {
+  active: boolean;
+  onClick: () => void;
+  icon?: React.ReactNode;
+  label: string;
+  activeClassName?: string;
+  mobile?: boolean;
+}
+
+const TabButton: React.FC<TabButtonProps> = ({
+  active,
+  onClick,
+  icon,
+  label,
+  activeClassName = 'bg-slate-100 text-slate-900 font-bold border border-slate-200 shadow-2xs dark:bg-slate-800 dark:text-white dark:border-slate-700',
+  mobile = false,
 }) => {
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  if (mobile) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium transition-all duration-150 cursor-pointer ${
+          active
+            ? activeClassName
+            : 'text-slate-700 bg-slate-100 hover:bg-slate-200 dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700'
+        }`}
+      >
+        {label}
+      </button>
+    );
+  }
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-2 rounded-lg transition-all duration-150 whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer ${
+        active
+          ? activeClassName
+          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800/70'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+};
+
+export const Navbar: React.FC<NavbarProps> = ({
+  activeTab,
+  onTabChange,
+  currentUser,
+  onSwitchUser,
+  onLogout,
+}) => {
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        menuContainerRef.current &&
+        !menuContainerRef.current.contains(event.target as Node)
+      ) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [userMenuOpen]);
+
+  return (
+    <header className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors duration-200">
       <div className="max-w-6xl mx-auto px-4">
         <div className="flex items-center justify-between gap-4 h-16">
-          {/* Logo Brand & Subtitle */}
-          <div 
+          {/* Logo Brand */}
+          <button
+            type="button"
             onClick={() => onTabChange(currentUser.role === 'employer' ? 'catalog' : 'freelancer')}
-            className="flex items-center gap-2.5 cursor-pointer whitespace-nowrap shrink-0 group"
+            className="flex items-center gap-2.5 cursor-pointer whitespace-nowrap shrink-0 group text-left rounded-lg focus:outline-2 focus:outline-brand"
           >
-            <div className="w-9 h-9 rounded-lg bg-[#0a66c2] text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <div className="w-9 h-9 rounded-lg bg-brand text-white flex items-center justify-center font-bold text-sm shadow-xs">
               TL
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-base font-bold text-slate-900 tracking-tight">
+                <span className="text-base font-bold text-slate-900 dark:text-white tracking-tight group-hover:text-brand dark:group-hover:text-blue-400 transition-colors">
                   TrustLink
                 </span>
-                <span className="hidden sm:inline-block text-[11px] text-slate-500 font-medium">
+                <span className="hidden lg:inline-block text-[11px] text-slate-600 dark:text-slate-400 font-medium">
                   · LinkedIn da Confiança
                 </span>
               </div>
-              <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                <span className="font-semibold text-slate-700">
-                  {currentUser.role === 'freelancer' ? 'Área do Profissional (Maria Clara)' : 'Área do Contratante (Dra. Beatriz)'}
+              <div className="text-[11px] text-slate-600 dark:text-slate-400">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  {currentUser.role === 'freelancer'
+                    ? `Área do Profissional (${currentUser.name.split(' ')[0]})`
+                    : `Área do Contratante (${currentUser.name.split(' ').slice(0, 2).join(' ')})`}
                 </span>
               </div>
             </div>
-          </div>
+          </button>
 
           {/* Navigation Tabs */}
-          <nav className="hidden md:flex items-center gap-1 text-xs font-semibold">
+          <nav className="hidden md:flex items-center gap-1 text-xs font-semibold" aria-label="Navegação principal">
             {currentUser.role === 'employer' ? (
               <>
-                <button
+                <TabButton
+                  active={activeTab === 'catalog'}
                   onClick={() => onTabChange('catalog')}
-                  className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                    activeTab === 'catalog'
-                      ? 'bg-slate-100 text-[#0a66c2] font-bold border border-slate-200 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <Users className="w-4 h-4 text-[#0a66c2]" />
-                  Catálogo de Cuidadores
-                </button>
-
-                <button
+                  icon={<Users className="w-4 h-4 text-brand dark:text-blue-400" />}
+                  label="Catálogo de Cuidadores"
+                  activeClassName="bg-slate-100 text-brand font-bold border border-slate-200 shadow-2xs dark:bg-slate-800 dark:text-blue-400 dark:border-slate-700"
+                />
+                <TabButton
+                  active={activeTab === 'employer'}
                   onClick={() => onTabChange('employer')}
-                  className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                    activeTab === 'employer'
-                      ? 'bg-slate-100 text-slate-900 font-bold border border-slate-200 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <Briefcase className="w-4 h-4 text-slate-600" />
-                  Meus Anúncios & Candidaturas
-                </button>
+                  icon={<Briefcase className="w-4 h-4 text-slate-600 dark:text-slate-400" />}
+                  label="Meus Anúncios"
+                />
               </>
             ) : (
               <>
-                <button
+                <TabButton
+                  active={activeTab === 'freelancer'}
                   onClick={() => onTabChange('freelancer')}
-                  className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                    activeTab === 'freelancer'
-                      ? 'bg-slate-100 text-emerald-800 font-bold border border-slate-200 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4 text-emerald-700" />
-                  Meu Perfil & Selos
-                </button>
-
-                <button
+                  icon={<UserCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />}
+                  label="Meu Perfil & Selos"
+                  activeClassName="bg-slate-100 text-emerald-800 font-bold border border-slate-200 shadow-2xs dark:bg-slate-800 dark:text-emerald-300 dark:border-slate-700"
+                />
+                <TabButton
+                  active={activeTab === 'jobs'}
                   onClick={() => onTabChange('jobs')}
-                  className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                    activeTab === 'jobs'
-                      ? 'bg-slate-100 text-[#0a66c2] font-bold border border-slate-200 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <Briefcase className="w-4 h-4 text-[#0a66c2]" />
-                  Vagas Disponíveis
-                </button>
+                  icon={<Briefcase className="w-4 h-4 text-brand dark:text-blue-400" />}
+                  label="Vagas Disponíveis"
+                  activeClassName="bg-slate-100 text-brand font-bold border border-slate-200 shadow-2xs dark:bg-slate-800 dark:text-blue-400 dark:border-slate-700"
+                />
               </>
             )}
 
-            <button
+            <TabButton
+              active={activeTab === 'radar'}
               onClick={() => onTabChange('radar')}
-              className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                activeTab === 'radar'
-                  ? 'bg-slate-100 text-slate-900 font-bold border border-slate-200 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Radio className="w-4 h-4 text-amber-600" />
-              Radar de Urgência (10km)
-            </button>
-
-            <button
+              icon={<Radio className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
+              label="Radar de Urgência"
+            />
+            <TabButton
+              active={activeTab === 'feed'}
               onClick={() => onTabChange('feed')}
-              className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
-                activeTab === 'feed'
-                  ? 'bg-slate-100 text-slate-900 font-bold border border-slate-200 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Sparkles className="w-4 h-4 text-slate-600" />
-              Feed da Confiança
-            </button>
+              icon={<Sparkles className="w-4 h-4 text-slate-600 dark:text-slate-400" />}
+              label="Feed da Confiança"
+            />
           </nav>
 
-          {/* User Controls */}
+          {/* User & Theme Controls */}
           <div className="flex items-center gap-2 relative">
+            <ThemeToggleButton showLabel={false} className="px-2.5 py-2" />
+
             <button
+              type="button"
               onClick={onSwitchUser}
-              title={currentUser.role === 'freelancer' ? 'Alternar para Área do Contratante' : 'Alternar para Área do Profissional'}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors"
+              title={
+                currentUser.role === 'freelancer'
+                  ? 'Alternar para Área do Contratante'
+                  : 'Alternar para Área do Profissional'
+              }
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <SwitchCamera className="w-3.5 h-3.5 text-[#0a66c2]" />
+              <SwitchCamera className="w-3.5 h-3.5 text-brand dark:text-blue-400" />
               <span>Alternar Perfil</span>
             </button>
 
             {/* Profile Dropdown */}
-            <div className="relative">
+            <div className="relative" ref={menuContainerRef}>
               <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 p-1.5 pl-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
+                type="button"
+                aria-expanded={userMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setUserMenuOpen((prev) => !prev)}
+                className="flex items-center gap-2 p-1.5 pl-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors cursor-pointer"
               >
                 <div className="text-left hidden sm:block">
-                  <div className="text-xs font-bold text-slate-900 leading-tight">
+                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100 leading-tight">
                     {currentUser.name.split(' ')[0]} {currentUser.name.split(' ').slice(-1)}
                   </div>
-                  <div className="text-[10px] text-slate-500 font-medium">
-                    {currentUser.role === 'freelancer' ? 'Profissional / Cuidadora' : 'Contratante / Família'}
+                  <div className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                    {currentUser.role === 'freelancer'
+                      ? 'Profissional / Cuidadora'
+                      : 'Contratante / Família'}
                   </div>
                 </div>
 
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
-                  currentUser.role === 'freelancer' ? 'bg-emerald-700' : 'bg-[#0a66c2]'
-                }`}>
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                    currentUser.role === 'freelancer' ? 'bg-emerald-700' : 'bg-brand'
+                  }`}
+                >
                   {currentUser.avatarInitials}
                 </div>
 
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
               </button>
 
               {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl py-2 z-50 text-xs">
-                  <div className="px-4 py-2 border-b border-slate-100">
-                    <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl py-2 z-50 text-xs"
+                >
+                  <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
+                    <span className="text-[10px] uppercase font-semibold text-slate-500 dark:text-slate-400 block">
                       CONECTADO COMO
                     </span>
-                    <span className="font-bold text-slate-900 text-sm block mt-0.5">
+                    <span className="font-bold text-slate-900 dark:text-white text-sm block mt-0.5">
                       {currentUser.name}
                     </span>
-                    <span className="text-slate-500 text-[11px] block">
-                      {currentUser.email}
-                    </span>
-                    <span className="inline-block mt-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                      {currentUser.role === 'freelancer' ? 'Conta de Profissional Verificada' : 'Conta de Contratante Residencial'}
+                    <span className="text-slate-600 dark:text-slate-400 text-[11px] block">{currentUser.email}</span>
+                    <span className="inline-block mt-1 text-[10px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                      {currentUser.role === 'freelancer'
+                        ? 'Conta de Profissional Verificada'
+                        : 'Conta de Contratante Residencial'}
                     </span>
                   </div>
 
                   <div className="py-1">
                     <button
+                      type="button"
+                      role="menuitem"
                       onClick={() => {
                         onSwitchUser();
                         setUserMenuOpen(false);
                       }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-slate-50 flex items-center justify-between text-slate-700 font-medium"
+                      className="w-full px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between text-slate-700 dark:text-slate-200 font-medium cursor-pointer"
                     >
                       <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-[#0a66c2]" />
-                        <span>Alternar para {currentUser.role === 'freelancer' ? 'Área do Contratante (Dra. Beatriz)' : 'Área do Profissional (Maria Clara)'}</span>
+                        <Users className="w-4 h-4 text-brand dark:text-blue-400" />
+                        <span>
+                          Alternar para{' '}
+                          {currentUser.role === 'freelancer'
+                            ? 'Área do Contratante (Dra. Beatriz)'
+                            : 'Área do Profissional (Maria Clara)'}
+                        </span>
                       </div>
                     </button>
                   </div>
 
-                  <div className="border-t border-slate-100 pt-1">
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-1">
                     <button
+                      type="button"
+                      role="menuitem"
                       onClick={() => {
                         setUserMenuOpen(false);
                         onLogout();
                       }}
-                      className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2 font-semibold"
+                      className="w-full px-4 py-2 text-left hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center gap-2 font-semibold cursor-pointer"
                     >
                       <LogOut className="w-4 h-4" />
                       <span>Sair / Ir para Tela Inicial</span>
@@ -230,70 +302,65 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Mobile secondary tab bar */}
-        <div className="md:hidden flex items-center gap-1.5 overflow-x-auto py-2.5 border-t border-slate-100 text-xs">
+        <nav className="md:hidden flex items-center gap-1.5 overflow-x-auto py-2.5 border-t border-slate-100 dark:border-slate-800 text-xs" aria-label="Navegação móvel">
           {currentUser.role === 'employer' ? (
             <>
-              <button
+              <TabButton
+                mobile
+                active={activeTab === 'catalog'}
                 onClick={() => onTabChange('catalog')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium ${
-                  activeTab === 'catalog' ? 'bg-[#0a66c2] text-white' : 'text-slate-600 bg-slate-100'
-                }`}
-              >
-                Catálogo de Cuidadores
-              </button>
-              <button
+                label="Catálogo de Cuidadores"
+                activeClassName="bg-brand text-white"
+              />
+              <TabButton
+                mobile
+                active={activeTab === 'employer'}
                 onClick={() => onTabChange('employer')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium ${
-                  activeTab === 'employer' ? 'bg-slate-900 text-white' : 'text-slate-600 bg-slate-100'
-                }`}
-              >
-                Meus Anúncios
-              </button>
+                label="Meus Anúncios"
+                activeClassName="bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+              />
             </>
           ) : (
             <>
-              <button
+              <TabButton
+                mobile
+                active={activeTab === 'freelancer'}
                 onClick={() => onTabChange('freelancer')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium ${
-                  activeTab === 'freelancer' ? 'bg-emerald-800 text-white' : 'text-slate-600 bg-slate-100'
-                }`}
-              >
-                Meu Perfil
-              </button>
-              <button
+                label="Meu Perfil"
+                activeClassName="bg-emerald-800 text-white"
+              />
+              <TabButton
+                mobile
+                active={activeTab === 'jobs'}
                 onClick={() => onTabChange('jobs')}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium ${
-                  activeTab === 'jobs' ? 'bg-[#0a66c2] text-white' : 'text-slate-600 bg-slate-100'
-                }`}
-              >
-                Vagas LinkedIn
-              </button>
+                label="Vagas LinkedIn"
+                activeClassName="bg-brand text-white"
+              />
             </>
           )}
 
-          <button
+          <TabButton
+            mobile
+            active={activeTab === 'radar'}
             onClick={() => onTabChange('radar')}
-            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium ${
-              activeTab === 'radar' ? 'bg-slate-900 text-white' : 'text-slate-600 bg-slate-100'
-            }`}
-          >
-            Radar Urgência (10km)
-          </button>
-          <button
+            label="Radar Urgência"
+            activeClassName="bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+          />
+          <TabButton
+            mobile
+            active={activeTab === 'feed'}
             onClick={() => onTabChange('feed')}
-            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium ${
-              activeTab === 'feed' ? 'bg-slate-900 text-white' : 'text-slate-600 bg-slate-100'
-            }`}
-          >
-            Feed
-          </button>
+            label="Feed"
+            activeClassName="bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+          />
           <button
+            type="button"
             onClick={onSwitchUser}
-            className="px-2.5 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium text-[#0a66c2] bg-blue-50 border border-blue-200"
+            className="px-2.5 py-1.5 rounded-lg whitespace-nowrap shrink-0 font-medium text-brand dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/60"
           >
             Alternar Perfil
           </button>
-        </div>
+        </nav>
       </div>
     </header>
   );

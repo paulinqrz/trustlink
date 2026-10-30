@@ -30,7 +30,13 @@ export interface FreelancerProfile {
   userId: string;
   fullName: string;
   title: string;
-  category: 'Cuidadora de Idosos' | 'Técnica de Enfermagem' | 'Babá / Cuidadora Infantil' | 'Governanta Doméstica' | 'Pet Sitter Especializado' | string;
+  category:
+    | 'Cuidadora de Idosos'
+    | 'Técnica de Enfermagem'
+    | 'Babá / Cuidadora Infantil'
+    | 'Governanta Doméstica'
+    | 'Pet Sitter Especializado'
+    | string;
   bio: string;
   city: string;
   neighborhood: string;
@@ -56,6 +62,24 @@ export interface FreelancerProfile {
   }[];
 }
 
+export interface RadarFreelancer {
+  id: string;
+  name: string;
+  role: string;
+  category: string;
+  lat: number;
+  lng: number;
+  distanceKm: number;
+  urgencyStatus: AvailabilityStatus;
+  rating: number;
+  reviewsCount: number;
+  hourlyRate: number;
+  dailyRate: number;
+  responseTimeMinutes: number;
+  badges: string[];
+  phoneMasked: string;
+}
+
 export interface PublicReview {
   id: string;
   contractId: string;
@@ -75,14 +99,13 @@ export interface SecretEvaluation {
   freelancerId: string;
   evaluatedAt: string;
   relationshipDuration: string;
-  // Traços comportamentais confidenciais
   honestyScore: number; // 1-10
   punctualityScore: number; // 1-10
   emotionalStabilityScore: number; // 1-10
   discretionConfidentialityScore: number; // 1-10
   reactionUnderCrisisScore: number; // 1-10
   wouldRehirePrivately: boolean;
-  privateNotes: string; // Só visto por empregadores verificados
+  privateNotes: string; // Visível apenas para empregadores verificados
   hasVerifiedContract: boolean;
 }
 
@@ -129,21 +152,6 @@ export interface FeedPost {
   endorsedByEmployer?: string;
 }
 
-export interface JobPipelineItem {
-  id: string;
-  candidateId: string;
-  candidateName: string;
-  candidateRole: string;
-  experienceYears: number;
-  rating: number;
-  distanceKm: number;
-  stage: 'triagem' | 'entrevista' | 'proposta' | 'contratado';
-  salaryExpectation: number;
-  badgesCount: number;
-  appliedDate: string;
-  contractId?: string;
-}
-
 export interface JobApplicant {
   id: string;
   candidateId: string;
@@ -169,6 +177,7 @@ export interface JobAnnouncement {
   employerName: string;
   employerType: string;
   location: string;
+  distanceKm: number;
   workSchedule: string;
   contractType: 'diario' | 'mensal_fixo' | 'plantao_urgencia';
   rateDescription: string;
@@ -196,6 +205,7 @@ export interface ActiveSession {
 
 export interface AuthUser {
   id: string;
+  freelancerProfileId?: string;
   name: string;
   email: string;
   role: 'freelancer' | 'employer';
@@ -204,4 +214,3 @@ export interface AuthUser {
   isVerified: boolean;
   activeContractsCount: number;
 }
-

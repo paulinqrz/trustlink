@@ -1,283 +1,613 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import { Navbar, ActiveTab } from './components/layout/Navbar';
-import { FreelancerView } from './components/freelancer/FreelancerView';
-import { CaregiverCatalogView } from './components/catalog/CaregiverCatalogView';
-import { RadarView } from './components/radar/RadarView';
-import { EmployerView } from './components/employer/EmployerView';
-import { TrustFeedView } from './components/feed/TrustFeedView';
-import { TechLeadConsole } from './components/tech-lead/TechLeadConsole';
 import { ContractModal } from './components/contracts/ContractModal';
 import { LoginView } from './components/auth/LoginView';
 import { LandingHomeView } from './components/home/LandingHomeView';
-import { LinkedInJobsView } from './components/jobs/LinkedInJobsView';
-import { 
-  primaryFreelancer, 
-  sampleCaregiverProfiles,
-  sampleContracts, 
-  samplePublicReviews, 
-  sampleSecretEvaluations,
-  sampleJobAnnouncements,
-  testUsers
-} from './data/mockData';
-import { Contract, AuthUser, FreelancerProfile, JobAnnouncement, JobApplicant } from './types';
-import { 
-  ShieldCheck, 
-  CheckCircle2, 
-  SwitchCamera, 
-  UserCheck, 
+import { ThemeProvider } from './components/common/ThemeContext';
+import { ToastProvider, useToast } from './components/common/ToastContext';
+import { trustlinkService } from './services/trustlinkService';
+import {
+  AvailabilityStatus,
+  AuthUser,
+  Contract,
+  FeedPost,
+  FreelancerProfile,
+  JobAnnouncement,
+  JobApplicant,
+  PublicReview,
+  SecretEvaluation,
+} from './types';
+import {
+  SwitchCamera,
+  UserCheck,
   Briefcase,
-  Terminal,
-  X
+  RotateCcw,
 } from 'lucide-react';
 
-export default function App() {
-  // If not logged in, user sees LandingHomeView ("tela inicial de começo")
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+const CaregiverCatalogView = lazy(() =>
+  import('./components/catalog/CaregiverCatalogView').then((m) => ({
+    default: m.CaregiverCatalogView,
+  }))
+);
+const FreelancerView = lazy(() =>
+  import('./components/freelancer/FreelancerView').then((m) => ({
+    default: m.FreelancerView,
+  }))
+);
+const LinkedInJobsView = lazy(() =>
+  import('./components/jobs/LinkedInJobsView').then((m) => ({
+    default: m.LinkedInJobsView,
+  }))
+);
+const RadarView = lazy(() =>
+  import('./components/radar/RadarView').then((m) => ({
+    default: m.RadarView,
+  }))
+);
+const EmployerView = lazy(() =>
+  import('./components/employer/EmployerView').then((m) => ({
+    default: m.EmployerView,
+  }))
+);
+const TrustFeedView = lazy(() =>
+  import('./components/feed/TrustFeedView').then((m) => ({
+    default: m.TrustFeedView,
+  }))
+);
+
+const ViewFallback: React.FC = () => (
+  <div className="max-w-6xl mx-auto px-4 py-16 text-center text-xs text-slate-600 dark:text-slate-400">
+    Carregando dados verificados do servidor...
+  </div>
+);
+
+interface ProfileRouteWrapperProps {
+  profiles: FreelancerProfile[];
+  defaultProfileId: string;
+  contracts: Contract[];
+  publicReviews: PublicReview[];
+  secretEvaluations: SecretEvaluation[];
+  currentUser: AuthUser;
+  onOpenContract: (contract: Contract) => void;
+  onUpdateAvailability: (profileId: string, status: AvailabilityStatus) => void;
+  onAddSecretEvaluation: (evaluation: SecretEvaluation) => Promise<void>;
+  onBackToCatalog?: () => void;
+  onNavigateToJobs: () => void;
+}
+
+const ProfileRouteWrapper: React.FC<ProfileRouteWrapperProps> = ({
+  profiles,
+  defaultProfileId,
+  contracts,
+  publicReviews,
+  secretEvaluations,
+  currentUser,
+  onOpenContract,
+  onUpdateAvailability,
+  onAddSecretEvaluation,
+  onBackToCatalog,
+  onNavigateToJobs,
+}) => {
+  const { id } = useParams<{ id: string }>();
+  const resolvedProfile =
+    profiles.find((p) => p.id === (id || defaultProfileId)) || profiles[0];
+
+  if (!resolvedProfile) {
+    return <ViewFallback />;
+  }
+
+  return (
+    <FreelancerView
+      key={resolvedProfile.id}
+      profile={resolvedProfile}
+      contracts={contracts}
+      publicReviews={publicReviews}
+      secretEvaluations={secretEvaluations}
+      onOpenContract={onOpenContract}
+      onUpdateAvailability={onUpdateAvailability}
+      onAddSecretEvaluation={onAddSecretEvaluation}
+      currentUser={currentUser}
+      onBackToCatalog={onBackToCatalog}
+      onNavigateToJobs={onNavigateToJobs}
+    />
+  );
+};
+
+function WorkspaceShell() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { showToast } = useToast();
+
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [workspaceLoading, setWorkspaceLoading] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  
-  const [activeTab, setActiveTab] = useState<ActiveTab>('catalog');
-  const [selectedCaregiverProfile, setSelectedCaregiverProfile] = useState<FreelancerProfile>(primaryFreelancer);
-  const [contracts, setContracts] = useState<Contract[]>(sampleContracts);
-  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-  const [contractNotification, setContractNotification] = useState<string | null>(null);
-  const [showTechDocsModal, setShowTechDocsModal] = useState<boolean>(false);
+  const [profiles, setProfiles] = useState<FreelancerProfile[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [publicReviews, setPublicReviews] = useState<PublicReview[]>([]);
+  const [secretEvaluations, setSecretEvaluations] = useState<SecretEvaluation[]>([]);
+  const [jobAnnouncements, setJobAnnouncements] = useState<JobAnnouncement[]>([]);
+  const [appliedJobIds, setAppliedJobIds] = useState<string[]>([]);
+  const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
 
-  // Job announcements state for employer and job seeker LinkedIn view
-  const [jobAnnouncements, setJobAnnouncements] = useState<JobAnnouncement[]>(sampleJobAnnouncements);
-  const [appliedJobIds, setAppliedJobIds] = useState<string[]>(['ann-01', 'ann-03']);
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
 
-  const handleLogin = (user: AuthUser) => {
+  const loadWorkspaceFromServer = useCallback(async () => {
+    setWorkspaceLoading(true);
+    try {
+      const payload = await trustlinkService.fetchBootstrap();
+      if (payload.user) {
+        setCurrentUser(payload.user);
+      }
+      setProfiles(payload.profiles);
+      setContracts(payload.contracts);
+      setPublicReviews(payload.publicReviews);
+      setSecretEvaluations(payload.secretEvaluations);
+      setJobAnnouncements(payload.jobAnnouncements);
+      setAppliedJobIds(payload.appliedJobIds);
+      setFeedPosts(payload.feedPosts);
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : 'Erro ao sincronizar dados com o servidor.',
+        'error'
+      );
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }, [showToast]);
+
+  // Restore session on initial load
+  useEffect(() => {
+    let active = true;
+    trustlinkService
+      .restoreSession()
+      .then(async (restoredUser) => {
+        if (!active) return;
+        if (restoredUser) {
+          setCurrentUser(restoredUser);
+          await loadWorkspaceFromServer();
+        }
+      })
+      .finally(() => {
+        if (active) setAuthChecking(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [loadWorkspaceFromServer]);
+
+  const selectedContract = useMemo(
+    () => contracts.find((c) => c.id === selectedContractId) ?? null,
+    [contracts, selectedContractId]
+  );
+
+  const activeTab: ActiveTab = useMemo(() => {
+    const path = location.pathname;
+    if (path.startsWith('/catalog')) return 'catalog';
+    if (path.startsWith('/profile')) return 'freelancer';
+    if (path.startsWith('/jobs')) return 'jobs';
+    if (path.startsWith('/radar')) return 'radar';
+    if (path.startsWith('/employer')) return 'employer';
+    if (path.startsWith('/feed')) return 'feed';
+    return currentUser?.role === 'employer' ? 'catalog' : 'freelancer';
+  }, [location.pathname, currentUser?.role]);
+
+  const defaultFreelancerProfileId =
+    currentUser?.freelancerProfileId || profiles[0]?.id || 'fl-101';
+
+  const loggedInFreelancerProfile = useMemo(
+    () => profiles.find((p) => p.id === defaultFreelancerProfileId),
+    [profiles, defaultFreelancerProfileId]
+  );
+
+  const handleTabChange = (tab: ActiveTab) => {
+    const map: Record<ActiveTab, string> = {
+      catalog: '/catalog',
+      freelancer: `/profile/${defaultFreelancerProfileId}`,
+      jobs: '/jobs',
+      radar: '/radar',
+      employer: '/employer',
+      feed: '/feed',
+    };
+    navigate(map[tab]);
+  };
+
+  const handleLoginSuccess = async (user: AuthUser) => {
     setCurrentUser(user);
-    setIsLoggedIn(true);
-    setShowLoginModal(false);
+    await loadWorkspaceFromServer();
     if (user.role === 'employer') {
-      setActiveTab('catalog');
+      navigate('/catalog');
     } else {
-      setSelectedCaregiverProfile(primaryFreelancer);
-      setActiveTab('freelancer');
+      navigate(`/profile/${user.freelancerProfileId || 'fl-101'}`);
+    }
+    showToast(`Bem-vindo(a), ${user.name}!`);
+  };
+
+  const handleDemoLogin = async (role: 'freelancer' | 'employer') => {
+    try {
+      const user = await trustlinkService.demoLogin(role);
+      await handleLoginSuccess(user);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Falha ao iniciar sessão de demonstração.',
+        'error'
+      );
     }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setShowLoginModal(false);
+  const handleLogout = async () => {
+    await trustlinkService.logout();
     setCurrentUser(null);
+    setSecretEvaluations([]);
+    navigate('/');
   };
 
-  const handleSwitchUser = () => {
+  const handleSwitchUser = async () => {
     if (!currentUser) return;
-    if (currentUser.role === 'freelancer') {
-      setCurrentUser(testUsers.employer);
-      setActiveTab('catalog');
-    } else {
-      setCurrentUser(testUsers.freelancer);
-      setSelectedCaregiverProfile(primaryFreelancer);
-      setActiveTab('freelancer');
+    const nextRole = currentUser.role === 'freelancer' ? 'employer' : 'freelancer';
+    try {
+      const switchedUser = await trustlinkService.demoLogin(nextRole);
+      setCurrentUser(switchedUser);
+      await loadWorkspaceFromServer();
+      if (switchedUser.role === 'employer') {
+        navigate('/catalog');
+        showToast(
+          `Sessão autenticada como ${switchedUser.name} (Contratante).`,
+          'info'
+        );
+      } else {
+        navigate(`/profile/${switchedUser.freelancerProfileId || 'fl-101'}`);
+        showToast(
+          `Sessão autenticada como ${switchedUser.name} (Profissional).`,
+          'info'
+        );
+      }
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao alternar conta.',
+        'error'
+      );
     }
   };
 
   const handleSelectCaregiver = (profile: FreelancerProfile) => {
-    setSelectedCaregiverProfile(profile);
-    setActiveTab('freelancer');
+    navigate(`/profile/${profile.id}`);
   };
 
-  const handleSelectCandidateByName = (candidateName: string) => {
-    const found = sampleCaregiverProfiles.find(p => p.fullName === candidateName);
+  const handleSelectCandidateById = (candidateId: string) => {
+    const found = profiles.find((p) => p.id === candidateId);
     if (found) {
-      setSelectedCaregiverProfile(found);
-      setActiveTab('freelancer');
+      navigate(`/profile/${found.id}`);
+    } else {
+      showToast('Perfil detalhado do candidato não encontrado.', 'error');
     }
   };
 
   const handleOpenContractModal = (contract: Contract) => {
-    setSelectedContract(contract);
+    setSelectedContractId(contract.id);
   };
 
   const handleOpenContractById = (contractId: string) => {
-    const found = contracts.find(c => c.id === contractId);
-    if (found) {
-      setSelectedContract(found);
-    } else {
-      setSelectedContract(contracts[0]);
+    const found = contracts.find((c) => c.id === contractId);
+    if (!found) {
+      showToast(`Contrato ${contractId} não encontrado nos registros.`, 'error');
+      return;
+    }
+    setSelectedContractId(found.id);
+  };
+
+  const handleCreateProposalContract = async (
+    freelancerId: string,
+    candidateName: string,
+    role: string,
+    rate: number,
+    jobId?: string,
+    jobTitle?: string
+  ): Promise<string> => {
+    const created = await trustlinkService.createProposalContract({
+      freelancerId,
+      candidateName,
+      role,
+      rate,
+      jobId,
+      jobTitle,
+    });
+    setContracts((prev) => [created, ...prev]);
+    setSelectedContractId(created.id);
+    showToast(
+      `Proposta e minuta (${created.id}) gravadas no SQLite para ${candidateName}! Aguardando assinatura digital.`
+    );
+    return created.id;
+  };
+
+  const handleSignContract = async (contractId: string) => {
+    try {
+      const updated = await trustlinkService.signContract(contractId);
+      setContracts((prev) =>
+        prev.map((c) => (c.id === contractId ? updated : c))
+      );
+      showToast('Contrato assinado digitalmente no servidor! Status: EM VIGÊNCIA.');
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Falha ao assinar contrato.',
+        'error'
+      );
     }
   };
 
-  const handleCreateProposalContract = (candidateName: string, role: string, rate: number) => {
-    const newContract: Contract = {
-      id: `ctr-${Date.now().toString().slice(-4)}`,
-      jobId: `job-${Date.now().toString().slice(-3)}`,
-      jobTitle: `Contrato de Prestação de Serviços - ${role}`,
-      employerId: 'emp-501',
-      employerName: 'Dra. Beatriz Fontana (Família Verificada)',
-      freelancerId: 'fl-101',
-      freelancerName: candidateName,
-      category: role,
-      type: 'diario',
-      status: 'active',
-      startDate: new Date().toLocaleDateString('pt-BR'),
-      agreedRate: rate,
-      rateType: 'daily',
-      locationAddress: 'Rua Bela Cintra, 1420 - Consolação, São Paulo/SP',
-      clauses: [
-        'Cláusula 1ª: Objeto - Prestação de serviços com zelo profissional e humanizado.',
-        'Cláusula 2ª: Sigilo e Confidencialidade - Obrigação de não divulgação de informações da residência.',
-        'Cláusula 3ª: Dupla Avaliação - Inserção de relatórios sigilosos condicionada ao término do contrato.'
-      ],
-      securityHash: `TL-CTR-${Date.now()}-SHA256`,
-      employerSignedAt: `${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR').slice(0, 5)}`,
-      canReview: false
-    };
-
-    setContracts([newContract, ...contracts]);
-    setContractNotification(`Contrato gerado automaticamente para ${candidateName}!`);
-    setTimeout(() => setContractNotification(null), 5000);
-  };
-
-  const handleSignContract = (contractId: string) => {
-    setContracts(prev => prev.map(c => {
-      if (c.id === contractId) {
-        return {
-          ...c,
-          freelancerSignedAt: new Date().toLocaleString('pt-BR'),
-          status: 'active'
-        };
-      }
-      return c;
-    }));
-  };
-
-  const handleApplyJob = (jobId: string, note: string) => {
-    if (!appliedJobIds.includes(jobId)) {
-      setAppliedJobIds(prev => [...prev, jobId]);
+  const handleCompleteContract = async (contractId: string) => {
+    try {
+      const updated = await trustlinkService.completeContract(contractId);
+      setContracts((prev) =>
+        prev.map((c) => (c.id === contractId ? updated : c))
+      );
+      setProfiles((prev) =>
+        prev.map((p) =>
+          p.id === updated.freelancerId
+            ? { ...p, completedContractsCount: p.completedContractsCount + 1 }
+            : p
+        )
+      );
+      showToast(
+        'Contrato marcado como CONCLUÍDO! Avaliação confidencial liberada para este vínculo.'
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao concluir contrato.',
+        'error'
+      );
     }
+  };
 
-    const newApplicant: JobApplicant = {
-      id: `app-${Date.now().toString().slice(-4)}`,
-      candidateId: currentUser?.id || 'fl-101',
-      candidateName: currentUser?.name || 'Maria Clara Silveira',
-      candidateRole: currentUser?.title || 'Cuidadora Geriátrica Sênior & COREN-SP',
-      avatarSeed: 'maria',
-      rating: 4.96,
-      reviewCount: 14,
-      distanceKm: 1.8,
-      salaryExpectation: 340,
-      stage: 'triagem',
-      appliedDate: 'Hoje às ' + new Date().toLocaleTimeString('pt-BR').slice(0, 5),
-      badges: ['Antecedentes PF', 'Check Facial 99.8%', 'COREN Ativo', 'CNH B'],
-      coverNote: note,
-      confidentialFeedbackSnippet: 'Avaliação sigilosa: Nota 10 em honestidade e discrição absoluta. Teve livre acesso à residência sem qualquer ocorrência.'
-    };
-
-    setJobAnnouncements(prev => prev.map(ann => {
-      if (ann.id === jobId) {
-        return {
-          ...ann,
-          applicants: [newApplicant, ...ann.applicants.filter(a => a.candidateId !== newApplicant.candidateId)]
-        };
+  const handleApplyJob = async (jobId: string, note: string) => {
+    try {
+      const updatedJob = await trustlinkService.applyToJob(jobId, note);
+      if (!appliedJobIds.includes(jobId)) {
+        setAppliedJobIds((prev) => [...prev, jobId]);
       }
-      return ann;
-    }));
+      setJobAnnouncements((prev) =>
+        prev.map((ann) => (ann.id === jobId ? updatedJob : ann))
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao enviar candidatura.',
+        'error'
+      );
+    }
   };
 
-  const handleUpdateApplicantStage = (announcementId: string, applicantId: string, newStage: JobApplicant['stage']) => {
-    setJobAnnouncements(prev => prev.map(ann => {
-      if (ann.id === announcementId) {
-        return {
-          ...ann,
-          applicants: ann.applicants.map(app => 
-            app.id === applicantId ? { ...app, stage: newStage } : app
-          )
-        };
+  const handleUpdateApplicantStage = async (
+    announcementId: string,
+    applicantId: string,
+    newStage: JobApplicant['stage'],
+    contractId?: string
+  ) => {
+    try {
+      const updatedJob = await trustlinkService.updateApplicantStage(
+        announcementId,
+        applicantId,
+        newStage,
+        contractId
+      );
+      setJobAnnouncements((prev) =>
+        prev.map((ann) => (ann.id === announcementId ? updatedJob : ann))
+      );
+      if (newStage === 'contratado') {
+        showToast('Contratação confirmada no pipeline!');
+      } else if (newStage === 'entrevista') {
+        showToast('Candidato movido para Entrevista Agendada.', 'info');
       }
-      return ann;
-    }));
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao atualizar etapa.',
+        'error'
+      );
+    }
   };
 
-  const handleCreateNewAnnouncement = (newAnn: JobAnnouncement) => {
-    setJobAnnouncements(prev => [newAnn, ...prev]);
-    setContractNotification(`Novo anúncio publicado: "${newAnn.title}"! Aba criada com sucesso.`);
-    setTimeout(() => setContractNotification(null), 5000);
+  const handleCreateNewAnnouncement = async (newAnn: JobAnnouncement) => {
+    try {
+      const rawLocation = newAnn.location.split(' · ')[0] || newAnn.location;
+      const saved = await trustlinkService.createJobAnnouncement({
+        title: newAnn.title,
+        location: rawLocation,
+        distanceKm: newAnn.distanceKm,
+        workSchedule: newAnn.workSchedule,
+        contractType: newAnn.contractType,
+        rateAmount: newAnn.rateAmount,
+        urgency: newAnn.urgency,
+        description: newAnn.description,
+      });
+      setJobAnnouncements((prev) => [saved, ...prev]);
+      showToast(`Novo anúncio gravado no banco: "${saved.title}"!`);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao publicar anúncio.',
+        'error'
+      );
+    }
   };
 
-  // 1. If not logged in and clicked to open Login Form
-  if (!isLoggedIn && showLoginModal) {
+  const handleUpdateAvailability = async (
+    profileId: string,
+    status: AvailabilityStatus
+  ) => {
+    try {
+      const updatedProfile = await trustlinkService.updateAvailability(
+        profileId,
+        status
+      );
+      setProfiles((prev) =>
+        prev.map((p) => (p.id === profileId ? updatedProfile : p))
+      );
+      const labelMap: Record<AvailabilityStatus, string> = {
+        online: 'Disponível (Online)',
+        urgency: 'Plantão de Urgência Ativo',
+        offline: 'Em Pausa (Offline)',
+      };
+      showToast(`Disponibilidade sincronizada no servidor: ${labelMap[status]}`, 'info');
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao alterar disponibilidade.',
+        'error'
+      );
+    }
+  };
+
+  const handleAddSecretEvaluation = async (evaluation: SecretEvaluation) => {
+    const saved = await trustlinkService.createSecretEvaluation({
+      contractId: evaluation.contractId,
+      freelancerId: evaluation.freelancerId,
+      honestyScore: evaluation.honestyScore,
+      punctualityScore: evaluation.punctualityScore,
+      discretionConfidentialityScore: evaluation.discretionConfidentialityScore,
+      wouldRehirePrivately: evaluation.wouldRehirePrivately,
+      privateNotes: evaluation.privateNotes,
+    });
+    setSecretEvaluations((prev) => [saved, ...prev]);
+  };
+
+  const handleCreateFeedPost = async (post: FeedPost) => {
+    try {
+      const saved = await trustlinkService.createFeedPost({
+        content: post.content,
+        type: post.type,
+        mediaTitle: post.mediaTitle,
+      });
+      setFeedPosts((prev) => [saved, ...prev]);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao publicar no feed.',
+        'error'
+      );
+    }
+  };
+
+  const handleLikeFeedPost = async (postId: string) => {
+    try {
+      const updated = await trustlinkService.likeFeedPost(postId);
+      setFeedPosts((prev) =>
+        prev.map((p) => (p.id === postId ? updated : p))
+      );
+    } catch {
+      // Ignore transient error
+    }
+  };
+
+  const handleResetDemo = async () => {
+    try {
+      const refreshedUser = await trustlinkService.resetDemoDatabase();
+      setCurrentUser(refreshedUser);
+      await loadWorkspaceFromServer();
+      showToast(
+        'Banco de dados SQLite restaurado para o seed inicial de demonstração!',
+        'info'
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao restaurar banco.',
+        'error'
+      );
+    }
+  };
+
+  if (authChecking) {
     return (
-      <LoginView 
-        onLogin={handleLogin} 
-        onBackToHome={() => setShowLoginModal(false)}
-      />
+      <div className="min-h-screen bg-canvas dark:bg-slate-950 flex items-center justify-center text-xs text-slate-600 dark:text-slate-400 font-medium">
+        Conectando ao servidor TrustLink...
+      </div>
     );
   }
 
-  // 2. If not logged in, render the clean initial home screen ("tela inicial de começo")
-  if (!isLoggedIn || !currentUser) {
+  if (!currentUser) {
     return (
-      <LandingHomeView 
-        onSelectUser={handleLogin}
-        onOpenLoginModal={() => setShowLoginModal(true)}
-      />
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            <LoginView
+              onLogin={(u) => void handleLoginSuccess(u)}
+              onBackToHome={() => navigate('/')}
+            />
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <LandingHomeView
+              onDemoLogin={(role) => void handleDemoLogin(role)}
+              onOpenLoginModal={() => navigate('/login')}
+            />
+          }
+        />
+      </Routes>
     );
   }
 
-  // 3. Logged in platform workspace
   return (
-    <div className="min-h-screen bg-[#f3f2ef] text-[#191919] flex flex-col font-sans selection:bg-[#0a66c2] selection:text-white">
-      {/* Top Navbar */}
-      <Navbar 
-        activeTab={activeTab} 
-        onTabChange={setActiveTab}
+    <div className="min-h-screen bg-canvas dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans selection:bg-brand selection:text-white transition-colors duration-200">
+      <Navbar
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
         currentUser={currentUser}
-        onSwitchUser={handleSwitchUser}
-        onLogout={handleLogout}
+        onSwitchUser={() => void handleSwitchUser()}
+        onLogout={() => void handleLogout()}
       />
-
-      {/* Global Toast for Contract Generation */}
-      {contractNotification && (
-        <div className="bg-slate-900 text-white text-xs py-2 px-4 border-b border-slate-800 flex items-center justify-between shadow-md">
-          <div className="max-w-6xl mx-auto flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span className="font-medium">{contractNotification}</span>
-          </div>
-          <button 
-            onClick={() => setContractNotification(null)}
-            className="text-slate-400 hover:text-white text-xs ml-4"
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       {/* Role Context Bar */}
-      <div className={`border-b text-xs py-2 px-4 ${
-        currentUser.role === 'freelancer' 
-          ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' 
-          : 'bg-blue-50/70 border-blue-200 text-slate-900'
-      }`}>
+      <div
+        className={`border-b text-xs py-2 px-4 transition-colors ${
+          currentUser.role === 'freelancer'
+            ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950 dark:bg-emerald-950/40 dark:border-emerald-900/60 dark:text-emerald-100'
+            : 'bg-blue-50/70 border-blue-200 text-slate-900 dark:bg-blue-950/40 dark:border-blue-900/60 dark:text-slate-100'
+        }`}
+      >
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {currentUser.role === 'freelancer' ? (
-              <UserCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+              <UserCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
             ) : (
-              <Briefcase className="w-4 h-4 text-[#0a66c2] shrink-0" />
+              <Briefcase className="w-4 h-4 text-brand dark:text-blue-400 shrink-0" />
             )}
             <span>
-              Conectado como <strong>{currentUser.name}</strong> ({currentUser.role === 'freelancer' ? 'Área do Profissional (Cuidador)' : 'Área do Contratante (Família)'}).
+              Conectado como <strong>{currentUser.name}</strong> (
+              {currentUser.role === 'freelancer'
+                ? 'Área do Profissional'
+                : 'Área do Contratante'}
+              ).
             </span>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={handleSwitchUser}
-              className="font-semibold underline flex items-center gap-1 text-[#0a66c2] hover:text-[#004182]"
+              type="button"
+              onClick={() => void handleSwitchUser()}
+              className="font-semibold underline flex items-center gap-1 text-brand dark:text-blue-400 hover:text-brand-hover dark:hover:text-blue-300 cursor-pointer"
             >
               <SwitchCamera className="w-3.5 h-3.5" />
-              <span>Alternar para {currentUser.role === 'freelancer' ? 'Área do Contratante' : 'Área do Profissional'}</span>
+              <span>
+                Alternar para{' '}
+                {currentUser.role === 'freelancer'
+                  ? 'Área do Contratante'
+                  : 'Área do Profissional'}
+              </span>
             </button>
-            <span className="text-slate-300">|</span>
+            <span className="text-slate-300 dark:text-slate-700">|</span>
             <button
-              onClick={handleLogout}
-              className="text-slate-600 hover:text-slate-900 font-medium"
+              type="button"
+              onClick={() => void handleLogout()}
+              className="text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white font-medium cursor-pointer"
             >
               Sair p/ Tela Inicial
             </button>
@@ -285,120 +615,212 @@ export default function App() {
         </div>
       </div>
 
-      {/* Main Views */}
+      {/* Main Routed Views */}
       <main className="flex-1">
-        {activeTab === 'catalog' && (
-          <CaregiverCatalogView 
-            currentUser={currentUser}
-            onSelectCaregiver={handleSelectCaregiver}
-            onOpenProposal={handleCreateProposalContract}
-          />
-        )}
-
-        {activeTab === 'freelancer' && (
-          <FreelancerView 
-            profile={selectedCaregiverProfile}
-            contracts={contracts}
-            publicReviews={samplePublicReviews}
-            secretEvaluations={sampleSecretEvaluations}
-            onOpenContract={handleOpenContractModal}
-            currentUser={currentUser}
-            onBackToCatalog={currentUser.role === 'employer' ? () => setActiveTab('catalog') : undefined}
-            onNavigateToJobs={() => setActiveTab('jobs')}
-          />
-        )}
-
-        {activeTab === 'jobs' && (
-          <LinkedInJobsView 
-            currentUser={currentUser}
-            jobAnnouncements={jobAnnouncements}
-            appliedJobIds={appliedJobIds}
-            onApplyJob={handleApplyJob}
-          />
-        )}
-
-        {activeTab === 'radar' && (
-          <RadarView 
-            onSelectForContract={handleCreateProposalContract}
-          />
-        )}
-
-        {activeTab === 'employer' && (
-          <EmployerView 
-            announcements={jobAnnouncements}
-            onOpenContractModal={handleOpenContractById}
-            onCreateProposalContract={handleCreateProposalContract}
-            onNavigateToCatalog={() => setActiveTab('catalog')}
-            onSelectCandidateProfile={handleSelectCandidateByName}
-            onUpdateApplicantStage={handleUpdateApplicantStage}
-            onCreateNewAnnouncement={handleCreateNewAnnouncement}
-          />
-        )}
-
-        {activeTab === 'feed' && (
-          <TrustFeedView />
+        {workspaceLoading && profiles.length === 0 ? (
+          <ViewFallback />
+        ) : (
+          <Suspense fallback={<ViewFallback />}>
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <Navigate
+                    to={
+                      currentUser.role === 'employer'
+                        ? '/catalog'
+                        : `/profile/${defaultFreelancerProfileId}`
+                    }
+                    replace
+                  />
+                }
+              />
+              <Route
+                path="/login"
+                element={
+                  <Navigate
+                    to={
+                      currentUser.role === 'employer'
+                        ? '/catalog'
+                        : `/profile/${defaultFreelancerProfileId}`
+                    }
+                    replace
+                  />
+                }
+              />
+              <Route
+                path="/catalog"
+                element={
+                  <CaregiverCatalogView
+                    profiles={profiles}
+                    onSelectCaregiver={handleSelectCaregiver}
+                    onOpenProposal={(id, name, role, rate) => {
+                      void handleCreateProposalContract(id, name, role, rate).catch(
+                        (err) =>
+                          showToast(
+                            err instanceof Error ? err.message : 'Erro ao emitir proposta.',
+                            'error'
+                          )
+                      );
+                    }}
+                  />
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <Navigate to={`/profile/${defaultFreelancerProfileId}`} replace />
+                }
+              />
+              <Route
+                path="/profile/:id"
+                element={
+                  <ProfileRouteWrapper
+                    profiles={profiles}
+                    defaultProfileId={defaultFreelancerProfileId}
+                    contracts={contracts}
+                    publicReviews={publicReviews}
+                    secretEvaluations={secretEvaluations}
+                    currentUser={currentUser}
+                    onOpenContract={handleOpenContractModal}
+                    onUpdateAvailability={(id, status) =>
+                      void handleUpdateAvailability(id, status)
+                    }
+                    onAddSecretEvaluation={handleAddSecretEvaluation}
+                    onBackToCatalog={
+                      currentUser.role === 'employer'
+                        ? () => navigate('/catalog')
+                        : undefined
+                    }
+                    onNavigateToJobs={() => navigate('/jobs')}
+                  />
+                }
+              />
+              <Route
+                path="/jobs"
+                element={
+                  <LinkedInJobsView
+                    currentUser={currentUser}
+                    userProfile={loggedInFreelancerProfile}
+                    jobAnnouncements={jobAnnouncements}
+                    appliedJobIds={appliedJobIds}
+                    onApplyJob={(jobId, note) => void handleApplyJob(jobId, note)}
+                  />
+                }
+              />
+              <Route
+                path="/radar"
+                element={
+                  <RadarView
+                    profiles={profiles}
+                    onSelectForContract={(id, name, role, rate) => {
+                      void handleCreateProposalContract(id, name, role, rate).catch(
+                        (err) =>
+                          showToast(
+                            err instanceof Error ? err.message : 'Erro ao emitir proposta.',
+                            'error'
+                          )
+                      );
+                    }}
+                  />
+                }
+              />
+              <Route
+                path="/employer"
+                element={
+                  <EmployerView
+                    currentUser={currentUser}
+                    announcements={jobAnnouncements}
+                    profiles={profiles}
+                    secretEvaluations={secretEvaluations}
+                    publicReviews={publicReviews}
+                    onOpenContractModal={handleOpenContractById}
+                    onCreateProposalContract={handleCreateProposalContract}
+                    onNavigateToCatalog={() => navigate('/catalog')}
+                    onSelectCandidateProfile={handleSelectCandidateById}
+                    onUpdateApplicantStage={(annId, appId, stage, ctrId) =>
+                      void handleUpdateApplicantStage(annId, appId, stage, ctrId)
+                    }
+                    onCreateNewAnnouncement={(ann) =>
+                      void handleCreateNewAnnouncement(ann)
+                    }
+                  />
+                }
+              />
+              <Route
+                path="/feed"
+                element={
+                  <TrustFeedView
+                    currentUser={currentUser}
+                    posts={feedPosts}
+                    onCreatePost={(post) => void handleCreateFeedPost(post)}
+                    onLikePost={(postId) => void handleLikeFeedPost(postId)}
+                  />
+                }
+              />
+              <Route
+                path="*"
+                element={
+                  <Navigate
+                    to={
+                      currentUser.role === 'employer'
+                        ? '/catalog'
+                        : `/profile/${defaultFreelancerProfileId}`
+                    }
+                    replace
+                  />
+                }
+              />
+            </Routes>
+          </Suspense>
         )}
       </main>
 
-      {/* Contract Viewer Modal */}
       {selectedContract && (
-        <ContractModal 
+        <ContractModal
           contract={selectedContract}
-          onClose={() => setSelectedContract(null)}
-          onSignContract={handleSignContract}
+          currentUser={currentUser}
+          onClose={() => setSelectedContractId(null)}
+          onSignContract={(id) => void handleSignContract(id)}
+          onCompleteContract={(id) => void handleCompleteContract(id)}
         />
       )}
 
-      {/* Tech Docs Modal (Discreet Developer Access in Footer) */}
-      {showTechDocsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto">
-          <div className="relative w-full max-w-5xl my-8 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-sm">Documentação de Engenharia & Arquitetura (Fastify / PostGIS / Redis)</h3>
-              </div>
-              <button
-                onClick={() => setShowTechDocsModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-70px)]">
-              <TechLeadConsole />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Human, Institutional Footer */}
-      <footer className="mt-auto border-t border-slate-200 bg-white py-6 text-xs text-slate-500">
+      <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 text-xs text-slate-600 dark:text-slate-400 transition-colors">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded bg-[#0a66c2] text-white flex items-center justify-center font-bold text-[10px]">
+            <div className="w-5 h-5 rounded bg-brand text-white flex items-center justify-center font-bold text-[10px]">
               TL
             </div>
-            <span className="font-semibold text-slate-700">TrustLink Brasil</span>
-            <span>· Plataforma de Serviços de Alta Confiança & Integridade</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">TrustLink Brasil</span>
+            <span>· Rede Auditada de Cuidados e Serviços Familiares</span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span>Privacidade & Sigilo Garantidos</span>
-            <span>·</span>
-            <span>Termos de Uso</span>
-            <span>·</span>
-            {/* Discreet Link for Engineering & Architecture Audit */}
+          <div className="flex flex-wrap items-center gap-4">
             <button
-              onClick={() => setShowTechDocsModal(true)}
-              className="text-slate-400 hover:text-slate-600 underline"
-              title="Visualizar rotas REST, PostGIS e arquitetura de sessões Redis"
+              type="button"
+              onClick={() => void handleResetDemo()}
+              className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-1 underline cursor-pointer"
+              title="Restaurar banco de dados SQLite para o seed inicial"
             >
-              Documentação de Arquitetura (API)
+              <RotateCcw className="w-3 h-3" />
+              Restaurar Banco Demo
             </button>
           </div>
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <ToastProvider>
+        <BrowserRouter>
+          <WorkspaceShell />
+        </BrowserRouter>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }
