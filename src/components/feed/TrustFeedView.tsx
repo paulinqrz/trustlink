@@ -50,7 +50,7 @@ export const TrustFeedView: React.FC<TrustFeedViewProps> = ({
         (postType === 'certification'
           ? 'Novo Certificado Profissional Auditado'
           : 'Registro de Rotina Humanizada'),
-      mediaSubtext: 'Comprovante verificado pelo comitê de integridade TrustLink',
+      mediaSubtext: 'Conferido pela moderação de documentos da Verilar (LGPD)',
       likesCount: 1,
       endorsementsCount: 0,
       hasVerifiedExEmployerEndorsement: false,

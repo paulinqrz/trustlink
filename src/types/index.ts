@@ -1,15 +1,35 @@
 export type AvailabilityStatus = 'online' | 'offline' | 'urgency';
 
+export type ProfessionCategory =
+  | 'Doméstica / Diarista'
+  | 'Babá'
+  | 'Cuidadora'
+  | string;
+
+export type HighlightPlan = 'free' | 'destaque' | 'destaque_pro';
+export type BillingCycle = 'monthly' | 'annual';
+
+export type VerificationBadgeType =
+  | 'identity'
+  | 'criminal_record'
+  | 'training_certificate'
+  | 'facial_biometrics'
+  | 'cnh'
+  | 'nursing_council';
+
 export interface VerificationBadge {
   id: string;
-  type: 'criminal_record' | 'facial_biometrics' | 'cnh' | 'nursing_council';
+  type: VerificationBadgeType;
+  layer?: 'identidade' | 'antecedentes' | 'formacao';
   title: string;
   issuer: string;
   verifiedAt: string;
   expiresAt: string;
+  validityDays?: number;
   status: 'verified' | 'pending' | 'expired';
   documentHash: string;
   details: string;
+  lgpdNotice?: string;
 }
 
 export interface SkillEndorsement {
@@ -25,18 +45,19 @@ export interface SkillEndorsement {
   }[];
 }
 
+export interface ProfileStats {
+  searchAppearances: number;
+  profileViews: number;
+  chatRequests: number;
+}
+
 export interface FreelancerProfile {
   id: string;
   userId: string;
   fullName: string;
+  age?: number;
   title: string;
-  category:
-    | 'Cuidadora de Idosos'
-    | 'Técnica de Enfermagem'
-    | 'Babá / Cuidadora Infantil'
-    | 'Governanta Doméstica'
-    | 'Pet Sitter Especializado'
-    | string;
+  category: ProfessionCategory;
   bio: string;
   city: string;
   neighborhood: string;
@@ -47,6 +68,11 @@ export interface FreelancerProfile {
   urgencyRadiusKm: number;
   lat: number;
   lng: number;
+  isVerified: boolean;
+  highlightPlan: HighlightPlan;
+  billingCycle?: BillingCycle;
+  pixKey?: string;
+  profileStats: ProfileStats;
   completedContractsCount: number;
   publicRating: number;
   publicReviewCount: number;
@@ -86,7 +112,7 @@ export interface PublicReview {
   freelancerId: string;
   employerName: string;
   employerType: string;
-  rating: number; // 1-5
+  rating: number; // 1-5 stars
   comment: string;
   date: string;
   serviceCategory: string;
@@ -105,8 +131,24 @@ export interface SecretEvaluation {
   discretionConfidentialityScore: number; // 1-10
   reactionUnderCrisisScore: number; // 1-10
   wouldRehirePrivately: boolean;
-  privateNotes: string; // Visível apenas para empregadores verificados
+  privateNotes: string;
   hasVerifiedContract: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  employerId: string;
+  employerName: string;
+  freelancerId: string;
+  freelancerName: string;
+  senderRole: 'employer' | 'freelancer';
+  senderName: string;
+  content: string;
+  proposedAmount?: number;
+  paymentMethod?: 'pix' | 'platform';
+  paymentStatus?: 'pending' | 'paid';
+  serviceDate?: string;
+  createdAt: string;
 }
 
 export interface Contract {

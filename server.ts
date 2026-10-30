@@ -48,12 +48,12 @@ async function startServer() {
 
   app.listen(port, '0.0.0.0', () => {
     console.log(
-      `[TrustLink] Servidor unificado (Express + SQLite + Frontend) rodando em http://localhost:${port}`
+      `[Verilar] Servidor unificado (Express + SQLite + Frontend) rodando em http://localhost:${port}`
     );
   });
 }
 
 startServer().catch((err) => {
-  console.error('[TrustLink] Falha ao iniciar o servidor:', err);
+  console.error('[Verilar] Falha ao iniciar o servidor:', err);
   process.exit(1);
 });

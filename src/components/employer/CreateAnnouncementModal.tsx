@@ -35,8 +35,8 @@ export const CreateAnnouncementModal: React.FC<CreateAnnouncementModalProps> = (
       id: `ann-${crypto.randomUUID().slice(0, 8)}`,
       title: newTitle.trim(),
       employerId: currentUser.id,
-      employerName: `${currentUser.name} (Residência Verificada)`,
-      employerType: 'Residência Verificada · Membro Auditado TrustLink',
+      employerName: `${currentUser.name} (Família Verilar)`,
+      employerType: 'Família Cadastrada · Verilar',
       location: `${newLocation.trim()} · ${parsedDistance.toFixed(1)} km de você`,
       distanceKm: parsedDistance,
       workSchedule: newSchedule.trim(),
@@ -44,28 +44,25 @@ export const CreateAnnouncementModal: React.FC<CreateAnnouncementModalProps> = (
       rateDescription:
         newContractType === 'mensal_fixo'
           ? `R$ ${parsedRate.toLocaleString('pt-BR')} / mês`
-          : `R$ ${parsedRate.toLocaleString('pt-BR')} / plantão`,
+          : `R$ ${parsedRate.toLocaleString('pt-BR')} / diária`,
       rateAmount: parsedRate,
       postedAt: 'Agora mesmo',
       status: 'active',
       urgency: isUrgent,
       description:
         newDescription.trim() ||
-        'Oportunidade para assistência com cuidado humanizado e compromisso ético.',
+        'Oportunidade para profissional verificada na Verilar.',
       responsibilities: [
-        'Acompanhamento e suporte com zelo às necessidades diárias',
-        'Controle dos horários de medicação e rotina do assistido',
-        'Registro transparente dos acontecimentos do dia',
+        'Atendimento pontual conforme rotina combinada no chat',
+        'Cuidado e zelo no ambiente residencial da família',
       ],
       requiredBadges: [
-        'Antecedentes Criminais PF e TJ',
-        'Checagem Facial Biométrica',
-        'Referências de Famílias Verificadas',
+        'Documento Oficial + Selfie (Camada 1)',
+        'Certidão Polícia Federal válida 90 dias (Camada 2)',
       ],
       benefits: [
-        'Ambiente familiar seguro e respeitoso',
-        'Alimentação no local',
-        'Contrato digital com garantia TrustLink',
+        'Pagamento via Plataforma Verilar ou Pix (0% comissão)',
+        'Avaliação pública de 1 a 5 estrelas após o serviço',
       ],
       applicants: [],
     };

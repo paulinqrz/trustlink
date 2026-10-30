@@ -1,9 +1,12 @@
 import {
   AuthUser,
   AvailabilityStatus,
+  BillingCycle,
+  ChatMessage,
   Contract,
   FeedPost,
   FreelancerProfile,
+  HighlightPlan,
   JobAnnouncement,
   JobApplicant,
   PublicReview,
@@ -11,7 +14,7 @@ import {
   SecretEvaluation,
 } from '../types';
 
-const TOKEN_STORAGE_KEY = 'trustlink_access_token_v2';
+const TOKEN_STORAGE_KEY = 'verilar_access_token_v1';
 
 export interface BootstrapPayload {
   user: AuthUser | null;
@@ -22,6 +25,7 @@ export interface BootstrapPayload {
   jobAnnouncements: JobAnnouncement[];
   appliedJobIds: string[];
   feedPosts: FeedPost[];
+  chatMessages: ChatMessage[];
 }
 
 let inMemoryAccessToken: string | null = null;
@@ -118,14 +122,14 @@ export { getInitials } from '../lib/utils';
 
 export const DEMO_PREVIEW_CARDS = {
   freelancer: {
-    name: 'Maria Clara Silveira',
-    title: 'Cuidadora Geriátrica Sênior & COREN-SP',
-    email: 'maria.clara@trustlink.org',
+    name: 'Cida Oliveira, 47 anos',
+    title: 'Diarista e Doméstica há 15 anos · Selo PF 90 dias',
+    email: 'cida@verilar.com.br',
   },
   employer: {
-    name: 'Dra. Beatriz Fontana',
-    title: 'Contratante Residencial & Médica Auditada',
-    email: 'beatriz.fontana@hospital.org',
+    name: 'Marina Mendes, 38 anos',
+    title: 'Mãe de duas crianças · Trabalha fora o dia todo',
+    email: 'marina@verilar.com.br',
   },
 } as const;
 
@@ -154,6 +158,7 @@ export const trustlinkService = {
     role: 'freelancer' | 'employer';
     category?: string;
     dailyRate?: number;
+    neighborhood?: string;
   }): Promise<AuthUser> {
     const res = await apiFetch<{ accessToken: string; user: AuthUser }>(
       '/auth/register',
@@ -247,6 +252,82 @@ export const trustlinkService = {
       }
     );
     return res.profile;
+  },
+
+  async verifyProfileInLayers(
+    profileId: string,
+    payload: {
+      documentType: string;
+      selfieConfirmed: boolean;
+      pfCertificateNumber: string;
+      pfValidationCode: string;
+      courseTitle?: string;
+      courseInstitution?: string;
+    }
+  ): Promise<FreelancerProfile> {
+    const res = await apiFetch<{ profile: FreelancerProfile }>(
+      `/profiles/${encodeURIComponent(profileId)}/verify`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+    return res.profile;
+  },
+
+  async updateHighlightPlan(
+    profileId: string,
+    plan: HighlightPlan,
+    billingCycle: BillingCycle
+  ): Promise<FreelancerProfile> {
+    const res = await apiFetch<{ profile: FreelancerProfile }>(
+      `/profiles/${encodeURIComponent(profileId)}/plan`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ plan, billingCycle }),
+      }
+    );
+    return res.profile;
+  },
+
+  async sendChatMessage(payload: {
+    freelancerId: string;
+    employerId?: string;
+    content: string;
+    proposedAmount?: number;
+    paymentMethod?: 'pix' | 'platform';
+    serviceDate?: string;
+  }): Promise<ChatMessage> {
+    const res = await apiFetch<{ message: ChatMessage }>('/chats/messages', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res.message;
+  },
+
+  async confirmChatPayment(
+    messageId: string
+  ): Promise<{ message: ChatMessage; contract: Contract }> {
+    return apiFetch<{ message: ChatMessage; contract: Contract }>(
+      `/chats/messages/${encodeURIComponent(messageId)}/pay`,
+      { method: 'PATCH' }
+    );
+  },
+
+  async createPublicReview(payload: {
+    freelancerId: string;
+    contractId?: string;
+    rating: number;
+    comment: string;
+    employerType?: string;
+  }): Promise<{ review: PublicReview; profile: FreelancerProfile }> {
+    return apiFetch<{ review: PublicReview; profile: FreelancerProfile }>(
+      '/reviews/public',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
   },
 
   async createProposalContract(payload: {

@@ -18,9 +18,12 @@ import { trustlinkService } from './services/trustlinkService';
 import {
   AvailabilityStatus,
   AuthUser,
+  BillingCycle,
+  ChatMessage,
   Contract,
   FeedPost,
   FreelancerProfile,
+  HighlightPlan,
   JobAnnouncement,
   JobApplicant,
   PublicReview,
@@ -29,7 +32,7 @@ import {
 import {
   SwitchCamera,
   UserCheck,
-  Briefcase,
+  Home,
   RotateCcw,
 } from 'lucide-react';
 
@@ -41,6 +44,16 @@ const CaregiverCatalogView = lazy(() =>
 const FreelancerView = lazy(() =>
   import('./components/freelancer/FreelancerView').then((m) => ({
     default: m.FreelancerView,
+  }))
+);
+const ChatView = lazy(() =>
+  import('./components/chat/ChatView').then((m) => ({
+    default: m.ChatView,
+  }))
+);
+const PlansView = lazy(() =>
+  import('./components/plans/PlansView').then((m) => ({
+    default: m.PlansView,
   }))
 );
 const LinkedInJobsView = lazy(() =>
@@ -66,7 +79,7 @@ const TrustFeedView = lazy(() =>
 
 const ViewFallback: React.FC = () => (
   <div className="max-w-6xl mx-auto px-4 py-16 text-center text-xs text-slate-600 dark:text-slate-400">
-    Carregando dados verificados do servidor...
+    Carregando dados verificados da Verilar...
   </div>
 );
 
@@ -80,6 +93,25 @@ interface ProfileRouteWrapperProps {
   onOpenContract: (contract: Contract) => void;
   onUpdateAvailability: (profileId: string, status: AvailabilityStatus) => void;
   onAddSecretEvaluation: (evaluation: SecretEvaluation) => Promise<void>;
+  onVerifyProfile: (
+    profileId: string,
+    payload: {
+      documentType: string;
+      selfieConfirmed: boolean;
+      pfCertificateNumber: string;
+      pfValidationCode: string;
+      courseTitle?: string;
+      courseInstitution?: string;
+    }
+  ) => Promise<void>;
+  onAddPublicReview: (payload: {
+    freelancerId: string;
+    rating: number;
+    comment: string;
+    employerType?: string;
+  }) => Promise<void>;
+  onOpenChatWithProfile: (profileId: string) => void;
+  onNavigateToPlans: () => void;
   onBackToCatalog?: () => void;
   onNavigateToJobs: () => void;
 }
@@ -94,6 +126,10 @@ const ProfileRouteWrapper: React.FC<ProfileRouteWrapperProps> = ({
   onOpenContract,
   onUpdateAvailability,
   onAddSecretEvaluation,
+  onVerifyProfile,
+  onAddPublicReview,
+  onOpenChatWithProfile,
+  onNavigateToPlans,
   onBackToCatalog,
   onNavigateToJobs,
 }) => {
@@ -115,9 +151,51 @@ const ProfileRouteWrapper: React.FC<ProfileRouteWrapperProps> = ({
       onOpenContract={onOpenContract}
       onUpdateAvailability={onUpdateAvailability}
       onAddSecretEvaluation={onAddSecretEvaluation}
+      onVerifyProfile={onVerifyProfile}
+      onAddPublicReview={onAddPublicReview}
+      onOpenChatWithProfile={onOpenChatWithProfile}
+      onNavigateToPlans={onNavigateToPlans}
       currentUser={currentUser}
       onBackToCatalog={onBackToCatalog}
       onNavigateToJobs={onNavigateToJobs}
+    />
+  );
+};
+
+interface ChatRouteWrapperProps {
+  currentUser: AuthUser;
+  profiles: FreelancerProfile[];
+  messages: ChatMessage[];
+  onSendMessage: (payload: {
+    freelancerId: string;
+    employerId?: string;
+    content: string;
+    proposedAmount?: number;
+    paymentMethod?: 'pix' | 'platform';
+    serviceDate?: string;
+  }) => Promise<void>;
+  onConfirmPayment: (messageId: string) => Promise<void>;
+  onOpenProfile: (profileId: string) => void;
+}
+
+const ChatRouteWrapper: React.FC<ChatRouteWrapperProps> = ({
+  currentUser,
+  profiles,
+  messages,
+  onSendMessage,
+  onConfirmPayment,
+  onOpenProfile,
+}) => {
+  const { freelancerId } = useParams<{ freelancerId?: string }>();
+  return (
+    <ChatView
+      currentUser={currentUser}
+      profiles={profiles}
+      messages={messages}
+      initialFreelancerId={freelancerId}
+      onSendMessage={onSendMessage}
+      onConfirmPayment={onConfirmPayment}
+      onOpenProfile={onOpenProfile}
     />
   );
 };
@@ -137,6 +215,7 @@ function WorkspaceShell() {
   const [jobAnnouncements, setJobAnnouncements] = useState<JobAnnouncement[]>([]);
   const [appliedJobIds, setAppliedJobIds] = useState<string[]>([]);
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
 
@@ -154,6 +233,7 @@ function WorkspaceShell() {
       setJobAnnouncements(payload.jobAnnouncements);
       setAppliedJobIds(payload.appliedJobIds);
       setFeedPosts(payload.feedPosts);
+      setChatMessages(payload.chatMessages || []);
     } catch (err) {
       showToast(
         err instanceof Error
@@ -166,7 +246,6 @@ function WorkspaceShell() {
     }
   }, [showToast]);
 
-  // Restore session on initial load
   useEffect(() => {
     let active = true;
     trustlinkService
@@ -196,6 +275,8 @@ function WorkspaceShell() {
     const path = location.pathname;
     if (path.startsWith('/catalog')) return 'catalog';
     if (path.startsWith('/profile')) return 'freelancer';
+    if (path.startsWith('/chat')) return 'chat';
+    if (path.startsWith('/plans')) return 'plans';
     if (path.startsWith('/jobs')) return 'jobs';
     if (path.startsWith('/radar')) return 'radar';
     if (path.startsWith('/employer')) return 'employer';
@@ -215,6 +296,8 @@ function WorkspaceShell() {
     const map: Record<ActiveTab, string> = {
       catalog: '/catalog',
       freelancer: `/profile/${defaultFreelancerProfileId}`,
+      chat: '/chat',
+      plans: '/plans',
       jobs: '/jobs',
       radar: '/radar',
       employer: '/employer',
@@ -231,7 +314,7 @@ function WorkspaceShell() {
     } else {
       navigate(`/profile/${user.freelancerProfileId || 'fl-101'}`);
     }
-    showToast(`Bem-vindo(a), ${user.name}!`);
+    showToast(`Bem-vinda à Verilar, ${user.name}!`);
   };
 
   const handleDemoLogin = async (role: 'freelancer' | 'employer') => {
@@ -250,6 +333,7 @@ function WorkspaceShell() {
     await trustlinkService.logout();
     setCurrentUser(null);
     setSecretEvaluations([]);
+    setChatMessages([]);
     navigate('/');
   };
 
@@ -263,13 +347,13 @@ function WorkspaceShell() {
       if (switchedUser.role === 'employer') {
         navigate('/catalog');
         showToast(
-          `Sessão autenticada como ${switchedUser.name} (Contratante).`,
+          `Alternado para ${switchedUser.name} (Família / Cliente).`,
           'info'
         );
       } else {
         navigate(`/profile/${switchedUser.freelancerProfileId || 'fl-101'}`);
         showToast(
-          `Sessão autenticada como ${switchedUser.name} (Profissional).`,
+          `Alternado para ${switchedUser.name} (Prestadora Verificada).`,
           'info'
         );
       }
@@ -285,12 +369,16 @@ function WorkspaceShell() {
     navigate(`/profile/${profile.id}`);
   };
 
+  const handleOpenChatForProfile = (profileId: string) => {
+    navigate(`/chat/${profileId}`);
+  };
+
   const handleSelectCandidateById = (candidateId: string) => {
     const found = profiles.find((p) => p.id === candidateId);
     if (found) {
       navigate(`/profile/${found.id}`);
     } else {
-      showToast('Perfil detalhado do candidato não encontrado.', 'error');
+      showToast('Perfil detalhado da profissional não encontrado.', 'error');
     }
   };
 
@@ -301,10 +389,104 @@ function WorkspaceShell() {
   const handleOpenContractById = (contractId: string) => {
     const found = contracts.find((c) => c.id === contractId);
     if (!found) {
-      showToast(`Contrato ${contractId} não encontrado nos registros.`, 'error');
+      showToast(`Comprovante ${contractId} não encontrado nos registros.`, 'error');
       return;
     }
     setSelectedContractId(found.id);
+  };
+
+  const handleVerifyProfile = async (
+    profileId: string,
+    payload: {
+      documentType: string;
+      selfieConfirmed: boolean;
+      pfCertificateNumber: string;
+      pfValidationCode: string;
+      courseTitle?: string;
+      courseInstitution?: string;
+    }
+  ) => {
+    const updatedProfile = await trustlinkService.verifyProfileInLayers(profileId, payload);
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === profileId ? updatedProfile : p))
+    );
+    showToast(
+      'Verificação gratuita concluída! Selo PF válido por 90 dias emitido (LGPD: apenas o resultado foi salvo).'
+    );
+  };
+
+  const handleUpdateHighlightPlan = async (
+    plan: HighlightPlan,
+    billingCycle: BillingCycle
+  ) => {
+    if (!loggedInFreelancerProfile) return;
+    try {
+      const updatedProfile = await trustlinkService.updateHighlightPlan(
+        loggedInFreelancerProfile.id,
+        plan,
+        billingCycle
+      );
+      setProfiles((prev) =>
+        prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p))
+      );
+      const planNames: Record<HighlightPlan, string> = {
+        free: 'Sempre Gratuito (R$ 0)',
+        destaque: 'Verilar Destaque (R$ 9,90/mês)',
+        destaque_pro: 'Verilar Destaque Pro (R$ 19,90/mês)',
+      };
+      showToast(`Plano atualizado para ${planNames[plan]}!`);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'Erro ao atualizar plano.',
+        'error'
+      );
+    }
+  };
+
+  const handleSendChatMessage = async (payload: {
+    freelancerId: string;
+    employerId?: string;
+    content: string;
+    proposedAmount?: number;
+    paymentMethod?: 'pix' | 'platform';
+    serviceDate?: string;
+  }) => {
+    const savedMsg = await trustlinkService.sendChatMessage(payload);
+    setChatMessages((prev) => [...prev, savedMsg]);
+  };
+
+  const handleConfirmChatPayment = async (messageId: string) => {
+    const { message: paidMessage, contract: createdContract } =
+      await trustlinkService.confirmChatPayment(messageId);
+    setChatMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? paidMessage : m))
+    );
+    setContracts((prev) => [createdContract, ...prev]);
+    setProfiles((prev) =>
+      prev.map((p) =>
+        p.id === createdContract.freelancerId
+          ? { ...p, completedContractsCount: p.completedContractsCount + 1 }
+          : p
+      )
+    );
+    showToast(
+      `Pagamento confirmado (${paidMessage.paymentMethod === 'pix' ? 'Pix Direto' : 'Plataforma Verilar'} · 0% comissão)! Atendimento registrado no histórico.`
+    );
+  };
+
+  const handleAddPublicReview = async (payload: {
+    freelancerId: string;
+    rating: number;
+    comment: string;
+    employerType?: string;
+  }) => {
+    const { review, profile: updatedProfile } =
+      await trustlinkService.createPublicReview(payload);
+    setPublicReviews((prev) => [review, ...prev]);
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p))
+    );
+    showToast('Avaliação publicada no perfil da profissional!');
   };
 
   const handleCreateProposalContract = async (
@@ -326,7 +508,7 @@ function WorkspaceShell() {
     setContracts((prev) => [created, ...prev]);
     setSelectedContractId(created.id);
     showToast(
-      `Proposta e minuta (${created.id}) gravadas no SQLite para ${candidateName}! Aguardando assinatura digital.`
+      `Comprovante formal (${created.id}) gerado para ${candidateName}!`
     );
     return created.id;
   };
@@ -337,7 +519,7 @@ function WorkspaceShell() {
       setContracts((prev) =>
         prev.map((c) => (c.id === contractId ? updated : c))
       );
-      showToast('Contrato assinado digitalmente no servidor! Status: EM VIGÊNCIA.');
+      showToast('Contrato assinado digitalmente! Status: EM VIGÊNCIA.');
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'Falha ao assinar contrato.',
@@ -359,9 +541,7 @@ function WorkspaceShell() {
             : p
         )
       );
-      showToast(
-        'Contrato marcado como CONCLUÍDO! Avaliação confidencial liberada para este vínculo.'
-      );
+      showToast('Serviço concluído e adicionado ao histórico do perfil!');
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'Erro ao concluir contrato.',
@@ -404,9 +584,9 @@ function WorkspaceShell() {
         prev.map((ann) => (ann.id === announcementId ? updatedJob : ann))
       );
       if (newStage === 'contratado') {
-        showToast('Contratação confirmada no pipeline!');
+        showToast('Contratação confirmada!');
       } else if (newStage === 'entrevista') {
-        showToast('Candidato movido para Entrevista Agendada.', 'info');
+        showToast('Candidata movida para Entrevista Agendada.', 'info');
       }
     } catch (err) {
       showToast(
@@ -430,7 +610,7 @@ function WorkspaceShell() {
         description: newAnn.description,
       });
       setJobAnnouncements((prev) => [saved, ...prev]);
-      showToast(`Novo anúncio gravado no banco: "${saved.title}"!`);
+      showToast(`Nova vaga publicada: "${saved.title}"!`);
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'Erro ao publicar anúncio.',
@@ -452,11 +632,11 @@ function WorkspaceShell() {
         prev.map((p) => (p.id === profileId ? updatedProfile : p))
       );
       const labelMap: Record<AvailabilityStatus, string> = {
-        online: 'Disponível (Online)',
-        urgency: 'Plantão de Urgência Ativo',
+        online: 'Disponível nas Buscas',
+        urgency: 'Urgência Hoje Ativa',
         offline: 'Em Pausa (Offline)',
       };
-      showToast(`Disponibilidade sincronizada no servidor: ${labelMap[status]}`, 'info');
+      showToast(`Disponibilidade atualizada: ${labelMap[status]}`, 'info');
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : 'Erro ao alterar disponibilidade.',
@@ -488,7 +668,7 @@ function WorkspaceShell() {
       setFeedPosts((prev) => [saved, ...prev]);
     } catch (err) {
       showToast(
-        err instanceof Error ? err.message : 'Erro ao publicar no feed.',
+        err instanceof Error ? err.message : 'Erro ao publicar no mural.',
         'error'
       );
     }
@@ -511,7 +691,7 @@ function WorkspaceShell() {
       setCurrentUser(refreshedUser);
       await loadWorkspaceFromServer();
       showToast(
-        'Banco de dados SQLite restaurado para o seed inicial de demonstração!',
+        'Banco SQLite restaurado com os dados iniciais da apresentação Verilar!',
         'info'
       );
     } catch (err) {
@@ -525,7 +705,7 @@ function WorkspaceShell() {
   if (authChecking) {
     return (
       <div className="min-h-screen bg-canvas dark:bg-slate-950 flex items-center justify-center text-xs text-slate-600 dark:text-slate-400 font-medium">
-        Conectando ao servidor TrustLink...
+        Conectando à Verilar...
       </div>
     );
   }
@@ -578,13 +758,13 @@ function WorkspaceShell() {
             {currentUser.role === 'freelancer' ? (
               <UserCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
             ) : (
-              <Briefcase className="w-4 h-4 text-brand dark:text-blue-400 shrink-0" />
+              <Home className="w-4 h-4 text-brand dark:text-blue-400 shrink-0" />
             )}
             <span>
-              Conectado como <strong>{currentUser.name}</strong> (
+              Conectada como <strong>{currentUser.name}</strong> (
               {currentUser.role === 'freelancer'
-                ? 'Área do Profissional'
-                : 'Área do Contratante'}
+                ? 'Prestadora · 0% Comissão nos Serviços'
+                : 'Família / Cliente · Busca 100% Gratuita'}
               ).
             </span>
           </div>
@@ -599,8 +779,8 @@ function WorkspaceShell() {
               <span>
                 Alternar para{' '}
                 {currentUser.role === 'freelancer'
-                  ? 'Área do Contratante'
-                  : 'Área do Profissional'}
+                  ? 'Família (Marina, 38)'
+                  : 'Prestadora (Cida, 47)'}
               </span>
             </button>
             <span className="text-slate-300 dark:text-slate-700">|</span>
@@ -609,7 +789,7 @@ function WorkspaceShell() {
               onClick={() => void handleLogout()}
               className="text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white font-medium cursor-pointer"
             >
-              Sair p/ Tela Inicial
+              Ver Apresentação Inicial
             </button>
           </div>
         </div>
@@ -654,6 +834,7 @@ function WorkspaceShell() {
                   <CaregiverCatalogView
                     profiles={profiles}
                     onSelectCaregiver={handleSelectCaregiver}
+                    onOpenChat={(prof) => handleOpenChatForProfile(prof.id)}
                     onOpenProposal={(id, name, role, rate) => {
                       void handleCreateProposalContract(id, name, role, rate).catch(
                         (err) =>
@@ -687,12 +868,55 @@ function WorkspaceShell() {
                       void handleUpdateAvailability(id, status)
                     }
                     onAddSecretEvaluation={handleAddSecretEvaluation}
+                    onVerifyProfile={handleVerifyProfile}
+                    onAddPublicReview={handleAddPublicReview}
+                    onOpenChatWithProfile={handleOpenChatForProfile}
+                    onNavigateToPlans={() => navigate('/plans')}
                     onBackToCatalog={
                       currentUser.role === 'employer'
                         ? () => navigate('/catalog')
                         : undefined
                     }
                     onNavigateToJobs={() => navigate('/jobs')}
+                  />
+                }
+              />
+              <Route
+                path="/chat"
+                element={
+                  <ChatRouteWrapper
+                    currentUser={currentUser}
+                    profiles={profiles}
+                    messages={chatMessages}
+                    onSendMessage={handleSendChatMessage}
+                    onConfirmPayment={handleConfirmChatPayment}
+                    onOpenProfile={(id) => navigate(`/profile/${id}`)}
+                  />
+                }
+              />
+              <Route
+                path="/chat/:freelancerId"
+                element={
+                  <ChatRouteWrapper
+                    currentUser={currentUser}
+                    profiles={profiles}
+                    messages={chatMessages}
+                    onSendMessage={handleSendChatMessage}
+                    onConfirmPayment={handleConfirmChatPayment}
+                    onOpenProfile={(id) => navigate(`/profile/${id}`)}
+                  />
+                }
+              />
+              <Route
+                path="/plans"
+                element={
+                  <PlansView
+                    currentUser={currentUser}
+                    ownProfile={loggedInFreelancerProfile}
+                    onUpdatePlan={handleUpdateHighlightPlan}
+                    onNavigateToProfile={() =>
+                      navigate(`/profile/${defaultFreelancerProfileId}`)
+                    }
                   />
                 }
               />
@@ -790,10 +1014,12 @@ function WorkspaceShell() {
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded bg-brand text-white flex items-center justify-center font-bold text-[10px]">
-              TL
+              VL
             </div>
-            <span className="font-semibold text-slate-800 dark:text-slate-200">TrustLink Brasil</span>
-            <span>· Rede Auditada de Cuidados e Serviços Familiares</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">Verilar</span>
+            <span>
+              · Contratação de domésticas, diaristas, babás e cuidadoras com confiança verificada
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
@@ -801,10 +1027,10 @@ function WorkspaceShell() {
               type="button"
               onClick={() => void handleResetDemo()}
               className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white inline-flex items-center gap-1 underline cursor-pointer"
-              title="Restaurar banco de dados SQLite para o seed inicial"
+              title="Restaurar banco de dados SQLite para o estado inicial da Verilar"
             >
               <RotateCcw className="w-3 h-3" />
-              Restaurar Banco Demo
+              Restaurar Dados Demo
             </button>
           </div>
         </div>

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { db } from '../db/index.ts';
 import { getInitials } from '../lib/utils.ts';
 import {
+  chatMessagesTable,
   contractsTable,
   feedPostsTable,
   jobAnnouncementsTable,
@@ -16,7 +17,11 @@ import {
   sessionsTable,
   usersTable,
 } from '../db/schema.ts';
-import { DEMO_PASSWORD_PLAIN, resetAndSeedDatabase } from '../db/seed.ts';
+import {
+  DEMO_PASSWORD_PLAIN,
+  mapProfileToRadarCategory,
+  resetAndSeedDatabase,
+} from '../db/seed.ts';
 import {
   authenticateRequest,
   clearRefreshCookie,
@@ -34,14 +39,18 @@ import {
 } from './geo.ts';
 import type {
   ActiveSession,
+  BillingCycle,
+  ChatMessage,
   Contract,
   FeedPost,
   FreelancerProfile,
+  HighlightPlan,
   JobAnnouncement,
   JobApplicant,
   PublicReview,
   RadarFreelancer,
   SecretEvaluation,
+  VerificationBadge,
 } from '../types/index.ts';
 
 export const apiRouter = Router();
@@ -53,6 +62,7 @@ function mapProfileRow(row: typeof profilesTable.$inferSelect): FreelancerProfil
     id: row.id,
     userId: row.userId,
     fullName: row.fullName,
+    age: row.age,
     title: row.title,
     category: row.category,
     bio: row.bio,
@@ -65,12 +75,39 @@ function mapProfileRow(row: typeof profilesTable.$inferSelect): FreelancerProfil
     urgencyRadiusKm: row.urgencyRadiusKm,
     lat: row.lat,
     lng: row.lng,
+    isVerified: Boolean(row.isVerified),
+    highlightPlan: (row.highlightPlan || 'free') as HighlightPlan,
+    billingCycle: (row.billingCycle || 'monthly') as BillingCycle,
+    pixKey: row.pixKey,
+    profileStats: {
+      searchAppearances: row.searchAppearances,
+      profileViews: row.profileViews,
+      chatRequests: row.chatRequests,
+    },
     completedContractsCount: row.completedContractsCount,
     publicRating: row.publicRating,
     publicReviewCount: row.publicReviewCount,
     badges: JSON.parse(row.badgesJson),
     skills: JSON.parse(row.skillsJson),
     certifications: JSON.parse(row.certificationsJson),
+  };
+}
+
+function mapChatRow(row: typeof chatMessagesTable.$inferSelect): ChatMessage {
+  return {
+    id: row.id,
+    employerId: row.employerId,
+    employerName: row.employerName,
+    freelancerId: row.freelancerId,
+    freelancerName: row.freelancerName,
+    senderRole: row.senderRole as 'employer' | 'freelancer',
+    senderName: row.senderName,
+    content: row.content,
+    proposedAmount: row.proposedAmount ?? undefined,
+    paymentMethod: (row.paymentMethod as 'pix' | 'platform' | null) ?? undefined,
+    paymentStatus: (row.paymentStatus as 'pending' | 'paid' | null) ?? undefined,
+    serviceDate: row.serviceDate ?? undefined,
+    createdAt: row.createdAt,
   };
 }
 
@@ -222,6 +259,7 @@ function buildJobAnnouncements(includeConfidentialNotes: boolean): JobAnnounceme
 apiRouter.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
+    platform: 'Verilar',
     engine: 'Express + Drizzle ORM + SQLite (WAL)',
     demoDefaultPassword: DEMO_PASSWORD_PLAIN,
     timestamp: new Date().toISOString(),
@@ -261,7 +299,7 @@ apiRouter.post('/auth/login', async (req, res) => {
   const validPassword = await bcrypt.compare(parsed.data.password, userRow.passwordHash);
   if (!validPassword) {
     res.status(401).json({
-      error: `Senha incorreta. (Para contas demo, a senha padrão é "${DEMO_PASSWORD_PLAIN}")`,
+      error: `Senha incorreta. (Para contas demo Verilar, a senha é "${DEMO_PASSWORD_PLAIN}")`,
     });
     return;
   }
@@ -277,6 +315,7 @@ const registerSchema = z.object({
   role: z.enum(['freelancer', 'employer']),
   category: z.string().optional(),
   dailyRate: z.number().min(50).optional(),
+  neighborhood: z.string().optional(),
 });
 
 apiRouter.post('/auth/register', async (req, res) => {
@@ -286,7 +325,7 @@ apiRouter.post('/auth/register', async (req, res) => {
     return;
   }
 
-  const { name, password, role, category, dailyRate } = parsed.data;
+  const { name, password, role, category, dailyRate, neighborhood } = parsed.data;
   const email = parsed.data.email.trim().toLowerCase();
 
   const existing = db
@@ -296,19 +335,25 @@ apiRouter.post('/auth/register', async (req, res) => {
     .get();
 
   if (existing) {
-    res.status(409).json({ error: 'Este e-mail já está cadastrado no TrustLink.' });
+    res.status(409).json({ error: 'Este e-mail já está cadastrado na Verilar.' });
     return;
   }
 
-  const userId = role === 'employer' ? `emp-${crypto.randomUUID().slice(0, 8)}` : `usr-${crypto.randomUUID().slice(0, 8)}`;
+  const userId =
+    role === 'employer'
+      ? `emp-${crypto.randomUUID().slice(0, 8)}`
+      : `usr-${crypto.randomUUID().slice(0, 8)}`;
   const profileId = role === 'freelancer' ? `fl-${crypto.randomUUID().slice(0, 8)}` : null;
   const passwordHash = await bcrypt.hash(password, 10);
   const nowIso = new Date().toISOString();
-  const resolvedCategory = category?.trim() || 'Cuidadora de Idosos';
+  const resolvedCategory = category?.trim() || 'Doméstica / Diarista';
   const resolvedTitle =
     role === 'employer'
-      ? 'Família Contratante Verificada'
-      : `${resolvedCategory} · Perfil Verificado`;
+      ? 'Família Contratante Verilar'
+      : `${resolvedCategory} · Aguardando Verificação Gratuita`;
+
+  // Regra Slide 4: prestadora só aparece nas buscas depois de verificada
+  const initialVerified = role === 'employer';
 
   db.insert(usersTable)
     .values({
@@ -319,50 +364,46 @@ apiRouter.post('/auth/register', async (req, res) => {
       role,
       title: resolvedTitle,
       avatarInitials: getInitials(name),
-      isVerified: true,
+      isVerified: initialVerified,
       freelancerProfileId: profileId,
       createdAt: nowIso,
     })
     .run();
 
   if (role === 'freelancer' && profileId) {
-    const rate = dailyRate || 320;
+    const rate = dailyRate || 180;
     db.insert(profilesTable)
       .values({
         id: profileId,
         userId,
         fullName: name.trim(),
+        age: 35,
         title: resolvedTitle,
         category: resolvedCategory,
-        radarCategory: 'Cuidado de Idosos',
-        bio: 'Profissional recém-cadastrado(a) na rede TrustLink com identidade verificada e compromisso com atendimento humanizado e sigilo familiar.',
+        radarCategory: mapProfileToRadarCategory(resolvedCategory),
+        bio: `Profissional de ${resolvedCategory} cadastrada na Verilar. Assim que concluir o envio gratuito do documento, selfie e certidão da Polícia Federal, o perfil passará a aparecer nas buscas das famílias.`,
         city: 'São Paulo',
-        neighborhood: 'Consolação / Região Central',
+        neighborhood: neighborhood?.trim() || 'Vila Mariana',
         hourlyRate: Math.round(rate / 8),
         dailyRate: rate,
         experienceYears: 3,
         availability: 'online',
         urgencyRadiusKm: 10,
-        lat: -23.558 + (Math.random() - 0.5) * 0.03,
-        lng: -46.662 + (Math.random() - 0.5) * 0.03,
+        lat: -23.568 + (Math.random() - 0.5) * 0.03,
+        lng: -46.652 + (Math.random() - 0.5) * 0.03,
         responseTimeMinutes: 15,
         phoneMasked: '(11) 98900-****',
+        isVerified: false,
+        highlightPlan: 'free',
+        billingCycle: 'monthly',
+        pixKey: `${email}`,
+        searchAppearances: 0,
+        profileViews: 0,
+        chatRequests: 0,
         completedContractsCount: 0,
         publicRating: 5.0,
         publicReviewCount: 0,
-        badgesJson: JSON.stringify([
-          {
-            id: `bdg-${crypto.randomUUID().slice(0, 6)}`,
-            type: 'facial_biometrics',
-            title: 'Identidade Biométrica Validada',
-            issuer: 'TrustLink ID Check',
-            verifiedAt: new Date().toLocaleDateString('pt-BR'),
-            expiresAt: '10/2028',
-            status: 'verified',
-            documentHash: crypto.randomBytes(16).toString('hex'),
-            details: 'Conferência documental concluída no cadastro inicial.',
-          },
-        ]),
+        badgesJson: JSON.stringify([]),
         skillsJson: JSON.stringify([]),
         certificationsJson: JSON.stringify([]),
       })
@@ -392,8 +433,8 @@ apiRouter.post('/auth/demo-login', (req, res) => {
 
   const targetEmail =
     parsed.data.role === 'employer'
-      ? 'beatriz.fontana@hospital.org'
-      : 'maria.clara@trustlink.org';
+      ? 'marina@verilar.com.br'
+      : 'cida@verilar.com.br';
 
   const userRow = db
     .select()
@@ -402,7 +443,7 @@ apiRouter.post('/auth/demo-login', (req, res) => {
     .get();
 
   if (!userRow) {
-    res.status(404).json({ error: 'Usuário de demonstração não encontrado no banco.' });
+    res.status(404).json({ error: 'Usuária de demonstração não encontrada no banco.' });
     return;
   }
 
@@ -450,7 +491,6 @@ apiRouter.post('/auth/refresh', (req, res) => {
     return;
   }
 
-  // Token Rotation: rotate refresh token hash in SQLite
   const nextRawRefresh = crypto.randomBytes(32).toString('hex');
   const nextHash = hashToken(nextRawRefresh);
   db.update(sessionsTable)
@@ -551,7 +591,7 @@ apiRouter.delete(
 );
 
 // =========================================================================
-// 3. BOOTSTRAP WORKSPACE DATA (ROLE-FILTERED FOR CONFIDENTIALITY)
+// 3. BOOTSTRAP WORKSPACE DATA
 // =========================================================================
 
 apiRouter.get('/bootstrap', authenticateRequest, (req: AuthenticatedRequest, res) => {
@@ -577,7 +617,6 @@ apiRouter.get('/bootstrap', authenticateRequest, (req: AuthenticatedRequest, res
     .all()
     .map(mapPublicReviewRow);
 
-  // Regra de Sigilo no Backend: Freelancers NUNCA recebem avaliações sigilosas pela rede
   const secretEvaluations = isEmployer
     ? db.select().from(secretEvaluationsTable).all().map(mapSecretEvalRow)
     : [];
@@ -600,6 +639,15 @@ apiRouter.get('/bootstrap', authenticateRequest, (req: AuthenticatedRequest, res
     .all()
     .map(mapFeedPostRow);
 
+  const allChatRows = db.select().from(chatMessagesTable).all();
+  const chatMessages = allChatRows
+    .filter((m) =>
+      isEmployer
+        ? m.employerId === authUser.sub
+        : m.freelancerId === (authUser.freelancerProfileId || '')
+    )
+    .map(mapChatRow);
+
   res.json({
     user: userRow ? mapUserRowToAuthUser(userRow) : null,
     profiles,
@@ -609,11 +657,12 @@ apiRouter.get('/bootstrap', authenticateRequest, (req: AuthenticatedRequest, res
     jobAnnouncements,
     appliedJobIds,
     feedPosts,
+    chatMessages,
   });
 });
 
 // =========================================================================
-// 4. PROFILES & GEOSPATIAL HAVERSINE RADAR
+// 4. PROFILES, VERIFICATION IN LAYERS (LGPD + 90 DAYS), PLANS & RADAR
 // =========================================================================
 
 const availabilitySchema = z.object({
@@ -648,13 +697,242 @@ apiRouter.patch(
         req.authUser!.sub !== existing.userId)
     ) {
       res.status(403).json({
-        error: 'Apenas o próprio profissional pode alterar sua disponibilidade.',
+        error: 'Apenas a própria profissional pode alterar sua disponibilidade.',
       });
       return;
     }
 
     db.update(profilesTable)
       .set({ availability: parsed.data.status })
+      .where(eq(profilesTable.id, profileId))
+      .run();
+
+    const updated = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, profileId))
+      .get()!;
+
+    res.json({ profile: mapProfileRow(updated) });
+  }
+);
+
+const verifyProfileSchema = z.object({
+  documentType: z.string().min(2),
+  selfieConfirmed: z.boolean(),
+  pfCertificateNumber: z.string().min(4, 'Informe o número da certidão da Polícia Federal.'),
+  pfValidationCode: z.string().min(4, 'Informe o código de validação do portal da PF.'),
+  courseTitle: z.string().optional(),
+  courseInstitution: z.string().optional(),
+});
+
+apiRouter.post(
+  '/profiles/:id/verify',
+  authenticateRequest,
+  (req: AuthenticatedRequest, res) => {
+    const profileId = String(req.params.id);
+    const parsed = verifyProfileSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: parsed.error.issues[0]?.message || 'Preencha todos os campos da verificação.',
+      });
+      return;
+    }
+
+    const existing = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, profileId))
+      .get();
+
+    if (!existing) {
+      res.status(404).json({ error: 'Perfil não encontrado.' });
+      return;
+    }
+
+    if (
+      req.authUser!.role !== 'freelancer' ||
+      (req.authUser!.freelancerProfileId !== profileId &&
+        req.authUser!.sub !== existing.userId)
+    ) {
+      res.status(403).json({ error: 'Apenas a titular do perfil pode enviar a verificação.' });
+      return;
+    }
+
+    if (!parsed.data.selfieConfirmed) {
+      res.status(400).json({ error: 'Confirme o envio da selfie com documento oficial.' });
+      return;
+    }
+
+    const requiresCourse =
+      existing.category.toLowerCase().includes('cuidadora') ||
+      existing.category.toLowerCase().includes('bab');
+
+    if (requiresCourse && !parsed.data.courseTitle?.trim()) {
+      res.status(400).json({
+        error: `Para a categoria ${existing.category}, o certificado do curso é obrigatório (Camada 3).`,
+      });
+      return;
+    }
+
+    const today = new Date();
+    const verifiedAtStr = today.toLocaleDateString('pt-BR');
+    const in90Days = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const expires90Str = in90Days.toLocaleDateString('pt-BR');
+    const in2Years = new Date(today.getTime() + 730 * 24 * 60 * 60 * 1000);
+    const expiresIdStr = in2Years.toLocaleDateString('pt-BR');
+
+    const newBadges: VerificationBadge[] = [
+      {
+        id: `bdg-id-${crypto.randomUUID().slice(0, 6)}`,
+        type: 'identity',
+        layer: 'identidade',
+        title: 'Camada 1 · Identidade e Selfie Verificadas',
+        issuer: `Moderação Verilar (${parsed.data.documentType} + Selfie)`,
+        verifiedAt: verifiedAtStr,
+        expiresAt: expiresIdStr,
+        status: 'verified',
+        documentHash: `PROT-ID-VL-${crypto.randomBytes(3).toString('hex').toUpperCase()} · Resultado: APROVADO`,
+        details:
+          'Documento oficial com foto comparado com selfie. Pela LGPD, apenas o status aprovado é salvo.',
+        lgpdNotice:
+          'Pela LGPD, a Verilar armazena apenas o resultado da verificação, descartando as imagens do documento.',
+      },
+      {
+        id: `bdg-pf-${crypto.randomUUID().slice(0, 6)}`,
+        type: 'criminal_record',
+        layer: 'antecedentes',
+        title: 'Camada 2 · Antecedentes Polícia Federal (90 dias)',
+        issuer: 'Portal Polícia Federal / gov.br (Conferência de Código)',
+        verifiedAt: verifiedAtStr,
+        expiresAt: expires90Str,
+        validityDays: 90,
+        status: 'verified',
+        documentHash: `Certidão PF nº ${parsed.data.pfCertificateNumber.trim()} · Cód. ${parsed.data.pfValidationCode.trim().slice(0, 8)}*** (Nada Consta)`,
+        details:
+          'Autenticidade conferida gratuitamente pelo número e código da PF. Selo válido por 90 dias com renovação periódica.',
+        lgpdNotice:
+          'Pela LGPD, a certidão não fica salva no servidor; apenas o protocolo e a validade de 90 dias são mantidos.',
+      },
+    ];
+
+    const currentCerts = JSON.parse(existing.certificationsJson) as FreelancerProfile['certifications'];
+    const updatedCerts = [...currentCerts];
+
+    if (parsed.data.courseTitle?.trim()) {
+      const inst = parsed.data.courseInstitution?.trim() || 'Instituição Reconhecida';
+      newBadges.push({
+        id: `bdg-crs-${crypto.randomUUID().slice(0, 6)}`,
+        type: 'training_certificate',
+        layer: 'formacao',
+        title: `Camada 3 · Certificado Conferido (${parsed.data.courseTitle.trim()})`,
+        issuer: `${inst} · Conferido pela Moderação Verilar`,
+        verifiedAt: verifiedAtStr,
+        expiresAt: 'Vitalício',
+        status: 'verified',
+        documentHash: `PROT-CURSO-${crypto.randomBytes(3).toString('hex').toUpperCase()} · Aprovado`,
+        details: 'Certificado de formação profissional conferido pela moderação da Verilar.',
+        lgpdNotice: 'Apenas o resultado da conferência do certificado é armazenado (LGPD).',
+      });
+
+      if (!updatedCerts.some((c) => c.title === parsed.data.courseTitle!.trim())) {
+        updatedCerts.unshift({
+          id: `cert-${crypto.randomUUID().slice(0, 6)}`,
+          title: parsed.data.courseTitle.trim(),
+          institution: inst,
+          year: today.getFullYear(),
+          certificateUrl: '#',
+          verified: true,
+        });
+      }
+    }
+
+    const updatedTitle = existing.title.replace(
+      'Aguardando Verificação Gratuita',
+      'Perfil Verificado Verilar'
+    );
+
+    db.update(profilesTable)
+      .set({
+        isVerified: true,
+        title: updatedTitle,
+        badgesJson: JSON.stringify(newBadges),
+        certificationsJson: JSON.stringify(updatedCerts),
+        searchAppearances: Math.max(existing.searchAppearances, 12),
+      })
+      .where(eq(profilesTable.id, profileId))
+      .run();
+
+    db.update(usersTable)
+      .set({
+        isVerified: true,
+        title: updatedTitle,
+      })
+      .where(eq(usersTable.id, existing.userId))
+      .run();
+
+    const updated = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, profileId))
+      .get()!;
+
+    res.json({ profile: mapProfileRow(updated) });
+  }
+);
+
+const updatePlanSchema = z.object({
+  plan: z.enum(['free', 'destaque', 'destaque_pro']),
+  billingCycle: z.enum(['monthly', 'annual']).optional(),
+});
+
+apiRouter.patch(
+  '/profiles/:id/plan',
+  authenticateRequest,
+  (req: AuthenticatedRequest, res) => {
+    const profileId = String(req.params.id);
+    const parsed = updatePlanSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Plano selecionado inválido.' });
+      return;
+    }
+
+    const existing = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, profileId))
+      .get();
+
+    if (!existing) {
+      res.status(404).json({ error: 'Perfil não encontrado.' });
+      return;
+    }
+
+    if (
+      req.authUser!.role !== 'freelancer' ||
+      (req.authUser!.freelancerProfileId !== profileId &&
+        req.authUser!.sub !== existing.userId)
+    ) {
+      res.status(403).json({
+        error: 'Apenas a própria profissional pode gerenciar seu plano opcional.',
+      });
+      return;
+    }
+
+    // Regra do Destaque Justo (Slide 8): só perfis verificados podem comprar destaque
+    if (!existing.isVerified && parsed.data.plan !== 'free') {
+      res.status(400).json({
+        error:
+          'Destaque Justo: Apenas perfis já verificados gratuitamente podem assinar o Verilar Destaque. Conclua sua verificação primeiro!',
+      });
+      return;
+    }
+
+    db.update(profilesTable)
+      .set({
+        highlightPlan: parsed.data.plan,
+        billingCycle: parsed.data.billingCycle ?? existing.billingCycle,
+      })
       .where(eq(profilesTable.id, profileId))
       .run();
 
@@ -678,6 +956,7 @@ apiRouter.get('/radar/nearby', authenticateRequest, (req, res) => {
   const rows = db.select().from(profilesTable).all();
 
   const nearby: RadarFreelancer[] = rows
+    .filter((row) => Boolean(row.isVerified))
     .map((row) => {
       const distanceKm = calculateHaversineDistanceKm(
         originLat,
@@ -696,7 +975,7 @@ apiRouter.get('/radar/nearby', authenticateRequest, (req, res) => {
         distanceKm,
         urgencyStatus: row.availability as RadarFreelancer['urgencyStatus'],
         rating: row.publicRating,
-        reviewsCount: row.publicReviewCount,
+        reviewsCount: row.completedContractsCount,
         hourlyRate: row.hourlyRate,
         dailyRate: row.dailyRate,
         responseTimeMinutes: row.responseTimeMinutes,
@@ -721,7 +1000,188 @@ apiRouter.get('/radar/nearby', authenticateRequest, (req, res) => {
 });
 
 // =========================================================================
-// 5. DIGITAL CONTRACTS (PROPOSAL, SIGNATURE, COMPLETION)
+// 5. CHAT & PAYMENT COMBINATION (PIX OR PLATFORM — 0% COMMISSION)
+// =========================================================================
+
+const sendChatSchema = z.object({
+  freelancerId: z.string().min(1),
+  employerId: z.string().optional(),
+  content: z.string().min(1, 'Escreva uma mensagem.'),
+  proposedAmount: z.number().positive().optional(),
+  paymentMethod: z.enum(['pix', 'platform']).optional(),
+  serviceDate: z.string().optional(),
+});
+
+apiRouter.post(
+  '/chats/messages',
+  authenticateRequest,
+  (req: AuthenticatedRequest, res) => {
+    const parsed = sendChatSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0]?.message || 'Mensagem inválida.' });
+      return;
+    }
+
+    const authUser = req.authUser!;
+    const profileRow = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, parsed.data.freelancerId))
+      .get();
+
+    if (!profileRow) {
+      res.status(404).json({ error: 'Profissional destinatária não encontrada.' });
+      return;
+    }
+
+    let employerId = parsed.data.employerId || '';
+    let employerName = 'Família Verilar';
+
+    if (authUser.role === 'employer') {
+      employerId = authUser.sub;
+      employerName = authUser.name;
+    } else {
+      const resolvedEmp = employerId
+        ? db.select().from(usersTable).where(eq(usersTable.id, employerId)).get()
+        : db.select().from(usersTable).where(eq(usersTable.role, 'employer')).get();
+      employerId = resolvedEmp?.id || 'emp-501';
+      employerName = resolvedEmp?.name || 'Marina Mendes';
+    }
+
+    const id = `msg-${crypto.randomUUID().slice(0, 8)}`;
+    const nowLabel = `Hoje às ${new Date().toLocaleTimeString('pt-BR').slice(0, 5)}`;
+
+    db.insert(chatMessagesTable)
+      .values({
+        id,
+        employerId,
+        employerName,
+        freelancerId: profileRow.id,
+        freelancerName: profileRow.fullName,
+        senderRole: authUser.role,
+        senderName: authUser.name,
+        content: parsed.data.content.trim(),
+        proposedAmount: parsed.data.proposedAmount ?? null,
+        paymentMethod: parsed.data.paymentMethod ?? null,
+        paymentStatus: parsed.data.proposedAmount ? 'pending' : null,
+        serviceDate: parsed.data.serviceDate?.trim() || null,
+        createdAt: nowLabel,
+      })
+      .run();
+
+    if (authUser.role === 'employer') {
+      db.update(profilesTable)
+        .set({ chatRequests: profileRow.chatRequests + 1 })
+        .where(eq(profilesTable.id, profileRow.id))
+        .run();
+    }
+
+    const created = db
+      .select()
+      .from(chatMessagesTable)
+      .where(eq(chatMessagesTable.id, id))
+      .get()!;
+
+    res.status(201).json({ message: mapChatRow(created) });
+  }
+);
+
+apiRouter.patch(
+  '/chats/messages/:id/pay',
+  authenticateRequest,
+  (req: AuthenticatedRequest, res) => {
+    const messageId = String(req.params.id);
+    const existing = db
+      .select()
+      .from(chatMessagesTable)
+      .where(eq(chatMessagesTable.id, messageId))
+      .get();
+
+    if (!existing || !existing.proposedAmount) {
+      res.status(404).json({ error: 'Proposta de pagamento não encontrada nesta conversa.' });
+      return;
+    }
+
+    db.update(chatMessagesTable)
+      .set({ paymentStatus: 'paid' })
+      .where(eq(chatMessagesTable.id, messageId))
+      .run();
+
+    // Registra automaticamente o atendimento concluído no histórico para permitir avaliação 1-5 estrelas
+    const contractId = `ctr-${crypto.randomUUID().slice(0, 8)}`;
+    const profileRow = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, existing.freelancerId))
+      .get();
+
+    const dateStr = new Date().toLocaleDateString('pt-BR');
+    const methodLabel =
+      existing.paymentMethod === 'pix'
+        ? 'Pix Direto (0% comissão)'
+        : 'Pagamento pela Plataforma Verilar (0% comissão)';
+
+    db.insert(contractsTable)
+      .values({
+        id: contractId,
+        jobId: `chat-${messageId}`,
+        jobTitle: `Atendimento Combinado no Chat (${existing.serviceDate || 'Diária'}) — ${methodLabel}`,
+        employerId: existing.employerId,
+        employerName: existing.employerName,
+        freelancerId: existing.freelancerId,
+        freelancerName: existing.freelancerName,
+        category: profileRow?.category || 'Doméstica / Diarista',
+        type: 'diario',
+        status: 'completed',
+        startDate: dateStr,
+        endDate: dateStr,
+        agreedRate: existing.proposedAmount,
+        rateType: 'daily',
+        weeklyHours: 8,
+        locationAddress: 'Residência Familiar Verificada · São Paulo/SP',
+        clausesJson: JSON.stringify([
+          `Cláusula 1ª: Valor de R$ ${existing.proposedAmount.toFixed(2)} quitado via ${methodLabel}.`,
+          'Cláusula 2ª: Zero cobrança de comissão sobre o serviço da profissional.',
+        ]),
+        securityHash: crypto
+          .createHash('sha256')
+          .update(`${contractId}:${messageId}:${dateStr}`)
+          .digest('hex'),
+        employerSignedAt: dateStr,
+        freelancerSignedAt: dateStr,
+        canReview: true,
+        createdAt: new Date().toISOString(),
+      })
+      .run();
+
+    if (profileRow) {
+      db.update(profilesTable)
+        .set({ completedContractsCount: profileRow.completedContractsCount + 1 })
+        .where(eq(profilesTable.id, profileRow.id))
+        .run();
+    }
+
+    const updatedMsg = db
+      .select()
+      .from(chatMessagesTable)
+      .where(eq(chatMessagesTable.id, messageId))
+      .get()!;
+
+    const createdContract = db
+      .select()
+      .from(contractsTable)
+      .where(eq(contractsTable.id, contractId))
+      .get()!;
+
+    res.json({
+      message: mapChatRow(updatedMsg),
+      contract: mapContractRow(createdContract),
+    });
+  }
+);
+
+// =========================================================================
+// 6. DIGITAL CONTRACTS (PROPOSAL, SIGNATURE, COMPLETION)
 // =========================================================================
 
 const createContractSchema = z.object({
@@ -737,7 +1197,7 @@ const createContractSchema = z.object({
 
 apiRouter.post('/contracts', authenticateRequest, (req: AuthenticatedRequest, res) => {
   if (req.authUser!.role !== 'employer') {
-    res.status(403).json({ error: 'Apenas contratantes podem emitir propostas contratuais.' });
+    res.status(403).json({ error: 'Apenas famílias contratantes podem emitir propostas.' });
     return;
   }
 
@@ -752,18 +1212,18 @@ apiRouter.post('/contracts', authenticateRequest, (req: AuthenticatedRequest, re
 
   const id = `ctr-${crypto.randomUUID().slice(0, 8)}`;
   const resolvedJobId = jobId || `job-${crypto.randomUUID().slice(0, 8)}`;
-  const resolvedTitle = jobTitle || `Contrato de Prestação de Serviços - ${role}`;
+  const resolvedTitle = jobTitle || `Acordo de Prestação de Serviços — ${role}`;
   const employerId = req.authUser!.sub;
-  const employerName = `${req.authUser!.name} (Família Verificada)`;
+  const employerName = `${req.authUser!.name} (Família Verilar)`;
   const signedTimestamp = `${new Date().toLocaleDateString('pt-BR')} às ${new Date()
     .toLocaleTimeString('pt-BR')
     .slice(0, 5)}`;
   const nowIso = new Date().toISOString();
 
   const clauses = [
-    'Cláusula 1ª: Objeto - Prestação de serviços com zelo profissional e humanizado.',
-    'Cláusula 2ª: Sigilo e Confidencialidade - Obrigação irrestrita de não divulgação de informações da residência (LGPD).',
-    'Cláusula 3ª: Dupla Avaliação - Inserção de relatórios sigilosos condicionada estritamente ao término formal do contrato.',
+    'Cláusula 1ª: Objeto — Prestação de serviço doméstico ou de cuidado familiar com 0% de comissão descontada da profissional.',
+    'Cláusula 2ª: Verificação e LGPD — A profissional possui selo ativo na Verilar, sem retenção de cópias de documentos pessoais.',
+    'Cláusula 3ª: Pagamento e Avaliação — Pagamento pela plataforma ou por Pix, com avaliação de 1 a 5 estrelas liberada após o atendimento.',
   ];
 
   const securityHash = crypto
@@ -798,7 +1258,7 @@ apiRouter.post('/contracts', authenticateRequest, (req: AuthenticatedRequest, re
       agreedRate: rate,
       rateType: rateType || 'daily',
       weeklyHours: null,
-      locationAddress: 'Rua Bela Cintra, 1420 - Consolação, São Paulo/SP',
+      locationAddress: 'Rua Pelotas, 410 - Vila Mariana, São Paulo/SP',
       clausesJson: JSON.stringify(clauses),
       securityHash,
       employerSignedAt: signedTimestamp,
@@ -839,7 +1299,7 @@ apiRouter.patch(
         req.authUser!.name !== existing.freelancerName)
     ) {
       res.status(403).json({
-        error: 'Apenas o profissional destinatário deste contrato pode assiná-lo.',
+        error: 'Apenas a profissional destinatária deste acordo pode assiná-lo.',
       });
       return;
     }
@@ -889,14 +1349,14 @@ apiRouter.patch(
 
     if (req.authUser!.role !== 'employer' || existing.employerId !== req.authUser!.sub) {
       res.status(403).json({
-        error: 'Apenas o contratante titular pode encerrar formalmente este contrato.',
+        error: 'Apenas a família contratante titular pode encerrar este atendimento.',
       });
       return;
     }
 
     if (existing.status !== 'active') {
       res.status(400).json({
-        error: 'Apenas contratos EM VIGÊNCIA podem ser marcados como concluídos.',
+        error: 'Apenas acordos EM VIGÊNCIA podem ser marcados como concluídos.',
       });
       return;
     }
@@ -935,8 +1395,154 @@ apiRouter.patch(
 );
 
 // =========================================================================
-// 6. CONFIDENTIAL EVALUATIONS (STRICT COMPLETED CONTRACT VALIDATION)
+// 7. REVIEWS: 1–5 STARS WITH COMMENTS (SLIDE 4) + CONFIDENTIAL EVALUATIONS
 // =========================================================================
+
+const createPublicReviewSchema = z.object({
+  freelancerId: z.string().min(1),
+  contractId: z.string().optional(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().min(4, 'Escreva um breve comentário sobre o atendimento.'),
+  employerType: z.string().optional(),
+});
+
+apiRouter.post(
+  '/reviews/public',
+  authenticateRequest,
+  (req: AuthenticatedRequest, res) => {
+    if (req.authUser!.role !== 'employer') {
+      res.status(403).json({
+        error: 'Apenas famílias clientes podem publicar avaliações de 1 a 5 estrelas.',
+      });
+      return;
+    }
+
+    const parsed = createPublicReviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: parsed.error.issues[0]?.message || 'Avaliação inválida.',
+      });
+      return;
+    }
+
+    const profileRow = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, parsed.data.freelancerId))
+      .get();
+
+    if (!profileRow) {
+      res.status(404).json({ error: 'Perfil da profissional não encontrado.' });
+      return;
+    }
+
+    // Localiza um atendimento concluído ou cria o registro do atendimento avaliado
+    let resolvedContractId = parsed.data.contractId;
+    if (!resolvedContractId) {
+      const completed = db
+        .select()
+        .from(contractsTable)
+        .where(
+          and(
+            eq(contractsTable.freelancerId, profileRow.id),
+            eq(contractsTable.status, 'completed')
+          )
+        )
+        .get();
+      resolvedContractId = completed?.id;
+    }
+
+    if (!resolvedContractId) {
+      const autoContractId = `ctr-${crypto.randomUUID().slice(0, 8)}`;
+      const todayStr = new Date().toLocaleDateString('pt-BR');
+      db.insert(contractsTable)
+        .values({
+          id: autoContractId,
+          jobId: `srv-${autoContractId}`,
+          jobTitle: `Atendimento ${profileRow.category} Concluído`,
+          employerId: req.authUser!.sub,
+          employerName: req.authUser!.name,
+          freelancerId: profileRow.id,
+          freelancerName: profileRow.fullName,
+          category: profileRow.category,
+          type: 'diario',
+          status: 'completed',
+          startDate: todayStr,
+          endDate: todayStr,
+          agreedRate: profileRow.dailyRate,
+          rateType: 'daily',
+          weeklyHours: 8,
+          locationAddress: 'Residência Familiar Verilar · São Paulo/SP',
+          clausesJson: JSON.stringify(['Atendimento residencial concluído pela plataforma Verilar.']),
+          securityHash: crypto.randomBytes(24).toString('hex'),
+          employerSignedAt: todayStr,
+          freelancerSignedAt: todayStr,
+          canReview: true,
+          createdAt: new Date().toISOString(),
+        })
+        .run();
+      resolvedContractId = autoContractId;
+    }
+
+    const id = `rev-${crypto.randomUUID().slice(0, 8)}`;
+    const todayStr = new Date().toLocaleDateString('pt-BR');
+
+    db.insert(publicReviewsTable)
+      .values({
+        id,
+        contractId: resolvedContractId,
+        freelancerId: profileRow.id,
+        employerName: req.authUser!.name,
+        employerType: parsed.data.employerType?.trim() || 'Família Verilar Verificada',
+        rating: parsed.data.rating,
+        comment: parsed.data.comment.trim(),
+        date: todayStr,
+        serviceCategory: profileRow.category,
+        contractPeriod: 'Recente',
+      })
+      .run();
+
+    // Recalcula média de 1 a 5 estrelas
+    const allReviewsForProfile = db
+      .select({ rating: publicReviewsTable.rating })
+      .from(publicReviewsTable)
+      .where(eq(publicReviewsTable.freelancerId, profileRow.id))
+      .all();
+
+    const total = allReviewsForProfile.length;
+    const avg =
+      total > 0
+        ? Math.round(
+            (allReviewsForProfile.reduce((acc, r) => acc + r.rating, 0) / total) * 100
+          ) / 100
+        : 5.0;
+
+    db.update(profilesTable)
+      .set({
+        publicRating: avg,
+        publicReviewCount: total,
+      })
+      .where(eq(profilesTable.id, profileRow.id))
+      .run();
+
+    const created = db
+      .select()
+      .from(publicReviewsTable)
+      .where(eq(publicReviewsTable.id, id))
+      .get()!;
+
+    const updatedProfile = db
+      .select()
+      .from(profilesTable)
+      .where(eq(profilesTable.id, profileRow.id))
+      .get()!;
+
+    res.status(201).json({
+      review: mapPublicReviewRow(created),
+      profile: mapProfileRow(updatedProfile),
+    });
+  }
+);
 
 const createSecretReviewSchema = z.object({
   contractId: z.string().min(1),
@@ -945,7 +1551,7 @@ const createSecretReviewSchema = z.object({
   punctualityScore: z.number().min(1).max(10),
   discretionConfidentialityScore: z.number().min(1).max(10),
   wouldRehirePrivately: z.boolean(),
-  privateNotes: z.string().min(5, 'Descreva o relato comportamental com pelo menos 5 caracteres.'),
+  privateNotes: z.string().min(5, 'Descreva o relato com pelo menos 5 caracteres.'),
 });
 
 apiRouter.post(
@@ -954,7 +1560,7 @@ apiRouter.post(
   (req: AuthenticatedRequest, res) => {
     if (req.authUser!.role !== 'employer') {
       res.status(403).json({
-        error: 'Acesso negado: Apenas contratantes verificados podem registrar avaliações sigilosas.',
+        error: 'Acesso negado: Apenas famílias contratantes podem registrar avaliações.',
       });
       return;
     }
@@ -984,7 +1590,7 @@ apiRouter.post(
       .get();
 
     if (!contractRow) {
-      res.status(404).json({ error: 'Contrato informado não existe.' });
+      res.status(404).json({ error: 'Atendimento informado não existe.' });
       return;
     }
 
@@ -993,14 +1599,14 @@ apiRouter.post(
       contractRow.freelancerId !== freelancerId
     ) {
       res.status(403).json({
-        error: 'Este contrato não pertence à sua conta com este profissional.',
+        error: 'Este atendimento não pertence à sua conta com esta profissional.',
       });
       return;
     }
 
     if (contractRow.status !== 'completed') {
       res.status(400).json({
-        error: 'Regra Anti-Difamação: O contrato precisa estar CONCLUÍDO para liberar avaliação.',
+        error: 'O atendimento precisa estar CONCLUÍDO para liberar avaliação.',
       });
       return;
     }
@@ -1017,7 +1623,7 @@ apiRouter.post(
           employerId: req.authUser!.sub,
           freelancerId,
           evaluatedAt: new Date().toLocaleDateString('pt-BR'),
-          relationshipDuration: `Contrato concluído (${contractRow.startDate})`,
+          relationshipDuration: `Atendimento concluído (${contractRow.startDate})`,
           honestyScore,
           punctualityScore,
           emotionalStabilityScore,
@@ -1046,7 +1652,7 @@ apiRouter.post(
 );
 
 // =========================================================================
-// 7. JOBS & APPLICANT PIPELINE
+// 8. JOBS & APPLICANT PIPELINE
 // =========================================================================
 
 const createJobSchema = z.object({
@@ -1062,7 +1668,7 @@ const createJobSchema = z.object({
 
 apiRouter.post('/jobs', authenticateRequest, (req: AuthenticatedRequest, res) => {
   if (req.authUser!.role !== 'employer') {
-    res.status(403).json({ error: 'Apenas contratantes podem publicar vagas.' });
+    res.status(403).json({ error: 'Apenas famílias podem publicar anúncios.' });
     return;
   }
 
@@ -1081,8 +1687,8 @@ apiRouter.post('/jobs', authenticateRequest, (req: AuthenticatedRequest, res) =>
       id,
       title: data.title.trim(),
       employerId: req.authUser!.sub,
-      employerName: `${req.authUser!.name} (Residência Verificada)`,
-      employerType: 'Residência Verificada · Membro Auditado TrustLink',
+      employerName: `${req.authUser!.name} (Família Verilar)`,
+      employerType: 'Família Verificada · Verilar',
       location: `${data.location.trim()} · ${data.distanceKm.toFixed(1)} km de você`,
       distanceKm: data.distanceKm,
       workSchedule: data.workSchedule.trim(),
@@ -1090,28 +1696,25 @@ apiRouter.post('/jobs', authenticateRequest, (req: AuthenticatedRequest, res) =>
       rateDescription:
         data.contractType === 'mensal_fixo'
           ? `R$ ${data.rateAmount.toLocaleString('pt-BR')} / mês`
-          : `R$ ${data.rateAmount.toLocaleString('pt-BR')} / plantão`,
+          : `R$ ${data.rateAmount.toLocaleString('pt-BR')} / diária`,
       rateAmount: data.rateAmount,
       postedAt: 'Agora mesmo',
       status: 'active',
       urgency: data.urgency,
       description:
         data.description?.trim() ||
-        'Oportunidade para assistência com cuidado humanizado e compromisso ético.',
+        'Oportunidade para atendimento residencial com selos verificados Verilar.',
       responsibilitiesJson: JSON.stringify([
-        'Acompanhamento e suporte com zelo às necessidades diárias',
-        'Controle dos horários de medicação e rotina do assistido',
-        'Registro transparente dos acontecimentos do dia',
+        'Atendimento zeloso conforme combinado no chat',
+        'Pontualidade e comunicação transparente com a família',
       ]),
       requiredBadgesJson: JSON.stringify([
-        'Antecedentes Criminais PF e TJ',
-        'Checagem Facial Biométrica',
-        'Referências de Famílias Verificadas',
+        'Camada 1 · Identidade e Selfie Verificadas',
+        'Camada 2 · Antecedentes Polícia Federal (90 dias)',
       ]),
       benefitsJson: JSON.stringify([
-        'Ambiente familiar seguro e respeitoso',
-        'Alimentação no local',
-        'Contrato digital com garantia TrustLink',
+        'Zero comissão descontada do pagamento',
+        'Pagamento via Pix ou Plataforma Verilar',
       ]),
       createdAt: nowIso,
     })
@@ -1164,7 +1767,14 @@ apiRouter.post(
       return;
     }
 
-    // Remove previous application from same candidate if any
+    if (!profileRow.isVerified) {
+      res.status(400).json({
+        error:
+          'Conclua primeiro sua verificação gratuita (Documento + Selfie + Certidão PF) antes de se candidatar.',
+      });
+      return;
+    }
+
     db.delete(jobApplicantsTable)
       .where(
         and(
@@ -1220,7 +1830,7 @@ apiRouter.patch(
   authenticateRequest,
   (req: AuthenticatedRequest, res) => {
     if (req.authUser!.role !== 'employer') {
-      res.status(403).json({ error: 'Apenas contratantes gerenciam o pipeline.' });
+      res.status(403).json({ error: 'Apenas famílias gerenciam as candidaturas.' });
       return;
     }
 
@@ -1263,7 +1873,7 @@ apiRouter.patch(
 );
 
 // =========================================================================
-// 8. TRUST FEED
+// 9. COMMUNITY FEED
 // =========================================================================
 
 const createPostSchema = z.object({
@@ -1286,7 +1896,7 @@ apiRouter.post('/feed', authenticateRequest, (req: AuthenticatedRequest, res) =>
     .get();
 
   const authorName = userRow?.name ?? req.authUser!.name;
-  const authorRole = userRow?.title ?? 'Membro Auditado TrustLink';
+  const authorRole = userRow?.title ?? 'Membro Verificado Verilar';
   const id = `pst-${crypto.randomUUID().slice(0, 8)}`;
 
   db.insert(feedPostsTable)
@@ -1297,19 +1907,19 @@ apiRouter.post('/feed', authenticateRequest, (req: AuthenticatedRequest, res) =>
       authorRole,
       authorCategory:
         req.authUser!.role === 'freelancer'
-          ? 'Profissional Verificado'
-          : 'Família Auditada',
+          ? 'Profissional Verificada'
+          : 'Família Verilar',
       avatarSeed: authorName.toLowerCase(),
-      verifiedBadgesCount: 4,
+      verifiedBadgesCount: 3,
       createdAt: 'Agora mesmo',
       content: parsed.data.content.trim(),
       type: parsed.data.type,
       mediaTitle:
         parsed.data.mediaTitle?.trim() ||
         (parsed.data.type === 'certification'
-          ? 'Novo Certificado Profissional Auditado'
-          : 'Registro de Rotina Humanizada'),
-      mediaSubtext: 'Comprovante verificado pelo comitê de integridade TrustLink',
+          ? 'Novo Selo / Curso Conferido pela Moderação Verilar'
+          : 'Relato de Atendimento Verificado'),
+      mediaSubtext: 'Registro verificado na comunidade Verilar',
       likesCount: 1,
       endorsementsCount: 0,
       hasVerifiedExEmployerEndorsement: false,
@@ -1354,7 +1964,7 @@ apiRouter.post('/feed/:id/like', authenticateRequest, (req, res) => {
 });
 
 // =========================================================================
-// 9. RESET DEMO DATABASE
+// 10. RESET DEMO DATABASE
 // =========================================================================
 
 apiRouter.post('/demo/reset', authenticateRequest, (req: AuthenticatedRequest, res) => {
@@ -1363,8 +1973,8 @@ apiRouter.post('/demo/reset', authenticateRequest, (req: AuthenticatedRequest, r
 
   const targetEmail =
     previousRole === 'employer'
-      ? 'beatriz.fontana@hospital.org'
-      : 'maria.clara@trustlink.org';
+      ? 'marina@verilar.com.br'
+      : 'cida@verilar.com.br';
 
   const userRow = db
     .select()

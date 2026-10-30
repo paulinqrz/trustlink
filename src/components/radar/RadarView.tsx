@@ -281,20 +281,12 @@ export const RadarView: React.FC<RadarViewProps> = ({
                   onChange={(e) => setCategoryFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 focus:ring-1 focus:ring-brand focus:outline-hidden"
                 >
-                  <option value="all">Todas as Especialidades</option>
-                  <option value="Cuidado de Idosos">
-                    Cuidado de Idosos (Alzheimer / Parkinson)
+                  <option value="all">Todas as Profissões Verilar</option>
+                  <option value="Doméstica / Diarista">
+                    Doméstica / Faxineira / Diarista
                   </option>
-                  <option value="Enfermagem & Acompanhamento">
-                    Técnico(a) de Enfermagem
-                  </option>
-                  <option value="Cuidado Infantil">Babá & Cuidado Infantil</option>
-                  <option value="Serviços Domésticos de Confiança">
-                    Governanta Residencial
-                  </option>
-                  <option value="Pet Care de Alta Confiança">
-                    Pet Sitter Especializado
-                  </option>
+                  <option value="Babá">Babá Verificada</option>
+                  <option value="Cuidadora">Cuidadora de Idosos</option>
                 </select>
               </div>
 

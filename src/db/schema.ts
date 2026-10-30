@@ -32,8 +32,9 @@ export const profilesTable = sqliteTable('profiles', {
   id: text('id').primaryKey(),
   userId: text('user_id').notNull(),
   fullName: text('full_name').notNull(),
+  age: integer('age').notNull().default(38),
   title: text('title').notNull(),
-  category: text('category').notNull(),
+  category: text('category').notNull(), // 'Doméstica / Diarista' | 'Babá' | 'Cuidadora'
   radarCategory: text('radar_category').notNull(),
   bio: text('bio').notNull(),
   city: text('city').notNull(),
@@ -47,12 +48,35 @@ export const profilesTable = sqliteTable('profiles', {
   lng: real('lng').notNull(),
   responseTimeMinutes: integer('response_time_minutes').notNull().default(20),
   phoneMasked: text('phone_masked').notNull().default('(11) 98800-****'),
+  isVerified: integer('is_verified', { mode: 'boolean' }).notNull().default(true),
+  highlightPlan: text('highlight_plan').notNull().default('free'), // 'free' | 'destaque' | 'destaque_pro'
+  billingCycle: text('billing_cycle').notNull().default('monthly'), // 'monthly' | 'annual'
+  pixKey: text('pix_key').notNull().default('verilar.pagamentos@pix.com.br'),
+  searchAppearances: integer('search_appearances').notNull().default(45),
+  profileViews: integer('profile_views').notNull().default(19),
+  chatRequests: integer('chat_requests').notNull().default(6),
   completedContractsCount: integer('completed_contracts_count').notNull().default(0),
   publicRating: real('public_rating').notNull().default(5.0),
   publicReviewCount: integer('public_review_count').notNull().default(0),
   badgesJson: text('badges_json').notNull(),
   skillsJson: text('skills_json').notNull(),
   certificationsJson: text('certifications_json').notNull(),
+});
+
+export const chatMessagesTable = sqliteTable('chat_messages', {
+  id: text('id').primaryKey(),
+  employerId: text('employer_id').notNull(),
+  employerName: text('employer_name').notNull(),
+  freelancerId: text('freelancer_id').notNull(),
+  freelancerName: text('freelancer_name').notNull(),
+  senderRole: text('sender_role').notNull(), // 'employer' | 'freelancer'
+  senderName: text('sender_name').notNull(),
+  content: text('content').notNull(),
+  proposedAmount: real('proposed_amount'),
+  paymentMethod: text('payment_method'), // 'pix' | 'platform'
+  paymentStatus: text('payment_status'), // 'pending' | 'paid'
+  serviceDate: text('service_date'),
+  createdAt: text('created_at').notNull(),
 });
 
 export const contractsTable = sqliteTable('contracts', {
@@ -164,7 +188,7 @@ export const feedPostsTable = sqliteTable('feed_posts', {
   authorRole: text('author_role').notNull(),
   authorCategory: text('author_category').notNull(),
   avatarSeed: text('avatar_seed').notNull(),
-  verifiedBadgesCount: integer('verified_badges_count').notNull().default(4),
+  verifiedBadgesCount: integer('verified_badges_count').notNull().default(3),
   createdAt: text('created_at').notNull(),
   content: text('content').notNull(),
   type: text('type').notNull(), // 'certification' | 'daily_routine' | 'milestone'

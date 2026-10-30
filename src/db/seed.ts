@@ -1,8 +1,9 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
-import { count } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, sqlite } from './index.ts';
 import {
+  chatMessagesTable,
   contractsTable,
   feedPostsTable,
   jobAnnouncementsTable,
@@ -17,6 +18,7 @@ import { getInitials } from '../lib/utils.ts';
 import {
   sampleActiveSessions,
   sampleCaregiverProfiles,
+  sampleChatMessages,
   sampleContracts,
   sampleFeedPosts,
   sampleJobAnnouncements,
@@ -26,18 +28,13 @@ import {
   testUsers,
 } from './seedData.ts';
 
-export const DEMO_PASSWORD_PLAIN = 'trustlink123';
+export const DEMO_PASSWORD_PLAIN = 'verilar123';
 
-function mapProfileToRadarCategory(category: string): string {
+export function mapProfileToRadarCategory(category: string): string {
   const lower = category.toLowerCase();
-  if (lower.includes('idoso') || lower.includes('geriátr')) return 'Cuidado de Idosos';
-  if (lower.includes('enferm')) return 'Enfermagem & Acompanhamento';
-  if (lower.includes('babá') || lower.includes('infantil')) return 'Cuidado Infantil';
-  if (lower.includes('governan') || lower.includes('doméstic')) {
-    return 'Serviços Domésticos de Confiança';
-  }
-  if (lower.includes('pet') || lower.includes('veterin')) return 'Pet Care de Alta Confiança';
-  return 'Cuidado de Idosos';
+  if (lower.includes('cuidadora') || lower.includes('idoso')) return 'Cuidadora';
+  if (lower.includes('bab')) return 'Babá';
+  return 'Doméstica / Diarista';
 }
 
 export function seedDatabase(): void {
@@ -45,7 +42,7 @@ export function seedDatabase(): void {
   const passwordHash = bcrypt.hashSync(DEMO_PASSWORD_PLAIN, 10);
 
   const runSeedTx = sqlite.transaction(() => {
-    // 1. Seed primary employer + primary freelancer + all other caregiver accounts
+    // 1. Seed primary employer (Marina) + primary freelancer (Cida) + other accounts
     db.insert(usersTable)
       .values({
         id: testUsers.employer.id,
@@ -87,20 +84,20 @@ export function seedDatabase(): void {
       db.insert(usersTable)
         .values({
           id: profile.userId,
-          email: `${slug}@trustlink.org`,
+          email: `${slug}@verilar.com.br`,
           passwordHash,
           name: profile.fullName,
           role: 'freelancer',
           title: profile.title,
           avatarInitials: getInitials(profile.fullName),
-          isVerified: true,
+          isVerified: profile.isVerified,
           freelancerProfileId: profile.id,
           createdAt: nowIso,
         })
         .run();
     }
 
-    // 2. Seed profiles (enriched with radar metadata from sampleRadarFreelancers)
+    // 2. Seed profiles
     for (const profile of sampleCaregiverProfiles) {
       const radarMatch = sampleRadarFreelancers.find((r) => r.id === profile.id);
       db.insert(profilesTable)
@@ -108,9 +105,10 @@ export function seedDatabase(): void {
           id: profile.id,
           userId: profile.userId,
           fullName: profile.fullName,
+          age: profile.age ?? 38,
           title: profile.title,
           category: profile.category,
-          radarCategory: radarMatch?.category ?? mapProfileToRadarCategory(profile.category),
+          radarCategory: mapProfileToRadarCategory(profile.category),
           bio: profile.bio,
           city: profile.city,
           neighborhood: profile.neighborhood,
@@ -121,8 +119,15 @@ export function seedDatabase(): void {
           urgencyRadiusKm: profile.urgencyRadiusKm,
           lat: radarMatch?.lat ?? profile.lat,
           lng: radarMatch?.lng ?? profile.lng,
-          responseTimeMinutes: radarMatch?.responseTimeMinutes ?? 20,
+          responseTimeMinutes: radarMatch?.responseTimeMinutes ?? 15,
           phoneMasked: radarMatch?.phoneMasked ?? '(11) 98700-****',
+          isVerified: profile.isVerified,
+          highlightPlan: profile.highlightPlan,
+          billingCycle: profile.billingCycle ?? 'monthly',
+          pixKey: profile.pixKey ?? 'verilar.pagamentos@pix.com.br',
+          searchAppearances: profile.profileStats.searchAppearances,
+          profileViews: profile.profileStats.profileViews,
+          chatRequests: profile.profileStats.chatRequests,
           completedContractsCount: profile.completedContractsCount,
           publicRating: profile.publicRating,
           publicReviewCount: profile.publicReviewCount,
@@ -133,7 +138,28 @@ export function seedDatabase(): void {
         .run();
     }
 
-    // 3. Seed contracts (including historical completed contracts referenced by reviews/secret evals)
+    // 3. Seed chat messages (combinar valores e pagamento por Pix ou Plataforma)
+    for (const msg of sampleChatMessages) {
+      db.insert(chatMessagesTable)
+        .values({
+          id: msg.id,
+          employerId: msg.employerId,
+          employerName: msg.employerName,
+          freelancerId: msg.freelancerId,
+          freelancerName: msg.freelancerName,
+          senderRole: msg.senderRole,
+          senderName: msg.senderName,
+          content: msg.content,
+          proposedAmount: msg.proposedAmount ?? null,
+          paymentMethod: msg.paymentMethod ?? null,
+          paymentStatus: msg.paymentStatus ?? null,
+          serviceDate: msg.serviceDate ?? null,
+          createdAt: msg.createdAt,
+        })
+        .run();
+    }
+
+    // 4. Seed contracts
     const seededContractIds = new Set<string>();
     for (const contract of sampleContracts) {
       seededContractIds.add(contract.id);
@@ -165,7 +191,6 @@ export function seedDatabase(): void {
         .run();
     }
 
-    // Ensure every historical contract referenced in samplePublicReviews or sampleSecretEvaluations exists as 'completed'
     const allReferencedReviews = [
       ...samplePublicReviews.map((r) => ({
         contractId: r.contractId,
@@ -177,8 +202,8 @@ export function seedDatabase(): void {
       ...sampleSecretEvaluations.map((s) => ({
         contractId: s.contractId,
         freelancerId: s.freelancerId,
-        employerName: 'Família Contratante Auditada',
-        category: 'Atendimento Residencial Verificado',
+        employerName: 'Família Verilar Verificada',
+        category: 'Atendimento Residencial Verilar',
         date: s.evaluatedAt,
       })),
     ];
@@ -197,35 +222,34 @@ export function seedDatabase(): void {
         .values({
           id: ref.contractId,
           jobId: `job-${ref.contractId}`,
-          jobTitle: `${ref.category} (Histórico Auditado)`,
-          employerId:
-            ref.employerName.includes('Beatriz') ? testUsers.employer.id : 'emp-hist-audit',
+          jobTitle: `${ref.category} — Atendimento Concluído`,
+          employerId: ref.employerName.includes('Marina') ? testUsers.employer.id : 'emp-hist-audit',
           employerName: ref.employerName,
           freelancerId: ref.freelancerId,
-          freelancerName: matchedProfile?.fullName ?? 'Profissional Auditado(a)',
+          freelancerName: matchedProfile?.fullName ?? 'Profissional Verilar',
           category: matchedProfile?.category ?? ref.category,
           type: 'diario',
           status: 'completed',
-          startDate: '01/02/2026',
+          startDate: '01/09/2026',
           endDate: ref.date,
-          agreedRate: matchedProfile?.dailyRate ?? 340,
+          agreedRate: matchedProfile?.dailyRate ?? 180,
           rateType: 'daily',
-          weeklyHours: 40,
-          locationAddress: 'Residência Verificada · São Paulo/SP',
+          weeklyHours: 8,
+          locationAddress: 'Residência Familiar · São Paulo/SP',
           clausesJson: JSON.stringify([
-            'Cláusula 1ª: Prestação de serviços concluída integralmente e auditada na plataforma.',
-            'Cláusula 2ª: Sigilo residencial e familiar sob protocolo LGPD.',
+            'Cláusula 1ª: Serviço concluído com pagamento direto sem cobrança de comissão sobre a diária.',
+            'Cláusula 2ª: Proteção de dados pessoais conforme LGPD.',
           ]),
           securityHash: hash,
-          employerSignedAt: '01/02/2026 09:00',
-          freelancerSignedAt: '01/02/2026 09:15',
+          employerSignedAt: '01/09/2026 08:30',
+          freelancerSignedAt: '01/09/2026 08:35',
           canReview: true,
           createdAt: nowIso,
         })
         .run();
     }
 
-    // 4. Seed public reviews (validated by SQLite trigger trg_public_review_requires_completed_contract)
+    // 5. Seed public reviews (1 to 5 stars + comments)
     for (const review of samplePublicReviews) {
       db.insert(publicReviewsTable)
         .values({
@@ -243,7 +267,7 @@ export function seedDatabase(): void {
         .run();
     }
 
-    // 5. Seed secret evaluations (validated by SQLite trigger trg_secret_eval_requires_completed_contract)
+    // 6. Seed secret evaluations
     for (const secret of sampleSecretEvaluations) {
       db.insert(secretEvaluationsTable)
         .values({
@@ -265,7 +289,7 @@ export function seedDatabase(): void {
         .run();
     }
 
-    // 6. Seed job announcements + applicants
+    // 7. Seed job announcements + applicants
     for (const job of sampleJobAnnouncements) {
       db.insert(jobAnnouncementsTable)
         .values({
@@ -315,7 +339,7 @@ export function seedDatabase(): void {
       }
     }
 
-    // 7. Seed feed posts
+    // 8. Seed feed posts
     for (const post of sampleFeedPosts) {
       db.insert(feedPostsTable)
         .values({
@@ -339,7 +363,7 @@ export function seedDatabase(): void {
         .run();
     }
 
-    // 8. Seed initial device sessions for demonstration of session revocation
+    // 9. Seed initial device session
     for (const sess of sampleActiveSessions) {
       if (sess.isCurrent) continue;
       db.insert(sessionsTable)
@@ -362,15 +386,9 @@ export function seedDatabase(): void {
   runSeedTx();
 }
 
-export function seedDatabaseIfEmpty(): void {
-  const existing = db.select({ total: count() }).from(usersTable).get();
-  if (!existing || existing.total === 0) {
-    seedDatabase();
-  }
-}
-
 export function resetAndSeedDatabase(): void {
   const resetTx = sqlite.transaction(() => {
+    db.delete(chatMessagesTable).run();
     db.delete(publicReviewsTable).run();
     db.delete(secretEvaluationsTable).run();
     db.delete(jobApplicantsTable).run();
@@ -383,4 +401,17 @@ export function resetAndSeedDatabase(): void {
   });
   resetTx();
   seedDatabase();
+}
+
+export function seedDatabaseIfEmpty(): void {
+  const cidaUser = db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.email, 'cida@verilar.com.br'))
+    .get();
+
+  // Se o banco estiver vazio OU ainda tiver o seed antigo pré-Verilar, sincroniza automaticamente
+  if (!cidaUser) {
+    resetAndSeedDatabase();
+  }
 }

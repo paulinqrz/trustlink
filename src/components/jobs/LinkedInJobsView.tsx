@@ -91,7 +91,7 @@ export const LinkedInJobsView: React.FC<LinkedInJobsViewProps> = ({
     if (!selectedJob) return;
     onApplyJob(
       selectedJob.id,
-      applyNote.trim() || 'Candidatura enviada com o perfil verificado TrustLink.'
+      applyNote.trim() || 'Candidatura enviada com perfil verificado na Verilar.'
     );
     setShowApplyModal(false);
     setApplyNote('');
@@ -180,13 +180,13 @@ export const LinkedInJobsView: React.FC<LinkedInJobsViewProps> = ({
 
         <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
             <span>
-              Você está na <strong className="text-slate-900 dark:text-white">Visão de Candidatura de Empregos</strong>. Candidate-se em 1 clique com seus selos auditados.
+              Você está no <strong className="text-slate-900 dark:text-white">Mural de Vagas de Famílias</strong>. Candidate-se em 1 clique com seus selos Verilar.
             </span>
           </div>
           <span className="text-slate-500 dark:text-slate-400 font-medium hidden sm:inline">
-            Interface no formato LinkedIn Vagas
+            0% Comissão sobre o Serviço
           </span>
         </div>
       </div>
@@ -466,7 +466,7 @@ export const LinkedInJobsView: React.FC<LinkedInJobsViewProps> = ({
           maxWidthClass="max-w-lg"
           headerBadge={
             <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider block">
-              CANDIDATURA FÁCIL TRUSTLINK
+              CANDIDATURA DIRETA VERILAR
             </span>
           }
           footer={

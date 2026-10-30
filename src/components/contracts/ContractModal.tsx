@@ -65,7 +65,7 @@ export const ContractModal: React.FC<ContractModalProps> = ({
 
     const content = [
       '========================================================================',
-      'TRUSTLINK BRASIL - MINUTA FORMAL DE PRESTAÇÃO DE SERVIÇOS E SIGILO',
+      'VERILAR BRASIL - COMPROVANTE FORMAL DE PRESTAÇÃO DE SERVIÇOS',
       '========================================================================',
       `ID do Contrato: ${contract.id}`,
       `Título: ${contract.jobTitle}`,
