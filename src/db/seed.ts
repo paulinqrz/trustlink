@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { db, sqlite } from './index.ts';
+import { db, persistDatabaseToDisk } from './index.ts';
 import {
   chatMessagesTable,
   contractsTable,
@@ -41,7 +41,7 @@ export function seedDatabase(): void {
   const nowIso = new Date().toISOString();
   const passwordHash = bcrypt.hashSync(DEMO_PASSWORD_PLAIN, 10);
 
-  const runSeedTx = sqlite.transaction(() => {
+  db.transaction(() => {
     // 1. Seed primary employer (Marina) + primary freelancer (Cida) + other accounts
     db.insert(usersTable)
       .values({
@@ -382,12 +382,10 @@ export function seedDatabase(): void {
         .run();
     }
   });
-
-  runSeedTx();
 }
 
 export function resetAndSeedDatabase(): void {
-  const resetTx = sqlite.transaction(() => {
+  db.transaction(() => {
     db.delete(chatMessagesTable).run();
     db.delete(publicReviewsTable).run();
     db.delete(secretEvaluationsTable).run();
@@ -399,8 +397,8 @@ export function resetAndSeedDatabase(): void {
     db.delete(sessionsTable).run();
     db.delete(usersTable).run();
   });
-  resetTx();
   seedDatabase();
+  persistDatabaseToDisk();
 }
 
 export function seedDatabaseIfEmpty(): void {
@@ -413,5 +411,7 @@ export function seedDatabaseIfEmpty(): void {
   // Se o banco estiver vazio OU ainda tiver o seed antigo pré-Verilar, sincroniza automaticamente
   if (!cidaUser) {
     resetAndSeedDatabase();
+  } else {
+    persistDatabaseToDisk();
   }
 }

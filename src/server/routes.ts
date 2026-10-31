@@ -260,7 +260,7 @@ apiRouter.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     platform: 'Verilar',
-    engine: 'Express + Drizzle ORM + SQLite (WAL)',
+    engine: 'Express + Drizzle ORM + SQLite (WebAssembly)',
     demoDefaultPassword: DEMO_PASSWORD_PLAIN,
     timestamp: new Date().toISOString(),
   });

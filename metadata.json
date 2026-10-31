@@ -1,6 +1,6 @@
 {
-  "name": "TrustLink - O LinkedIn da Confiança",
+  "name": "Verilar - O LinkedIn da Confiança",
   "description": "Plataforma de alta confiabilidade para empregos e serviços de cuidado e domésticos com avaliações duplas sigilosas, radar PostGIS e contratos digitais.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": []
+ 
 }

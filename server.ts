@@ -49,10 +49,15 @@ function listenWithFallback(
 
 async function startServer() {
   console.log('[Verilar] 1/4 Inicializando banco SQLite local...');
-  const { initializeSchemaDDL } = await import('./src/db/index.ts');
+  const { getDatabaseFilePath, initializeSchemaDDL } = await import('./src/db/index.ts');
   const { seedDatabaseIfEmpty } = await import('./src/db/seed.ts');
   initializeSchemaDDL();
   seedDatabaseIfEmpty();
+  const dbPath = getDatabaseFilePath();
+  if (dbPath !== ':memory:' && fs.existsSync(dbPath)) {
+    const sizeKb = (fs.statSync(dbPath).size / 1024).toFixed(1);
+    console.log(`[Verilar] Banco SQLite gravado em disco: ${dbPath} (${sizeKb} KB)`);
+  }
 
   console.log('[Verilar] 2/4 Carregando servidor Express e rotas da API...');
   const [{ default: express }, { default: cookieParser }, { apiRouter }] = await Promise.all([

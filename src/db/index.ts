@@ -1,48 +1,199 @@
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { fileURLToPath } from 'node:url';
+import { drizzle } from 'drizzle-orm/sql-js';
+import initSqlJsModule from 'sql.js';
+import type { BindParams, Database as SqlJsDatabase } from 'sql.js';
 import * as schema from './schema.ts';
 
-function openSqliteDatabase(): InstanceType<typeof Database> {
-  const preferredPath = process.env.SQLITE_DB_PATH || './trustlink.db';
-  const candidates =
-    preferredPath === ':memory:'
-      ? [':memory:']
-      : [preferredPath, path.join(os.tmpdir(), 'verilar-trustlink.db'), ':memory:'];
+const require = createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
-  let lastError: unknown;
+const initSqlJs =
+  typeof initSqlJsModule === 'function'
+    ? initSqlJsModule
+    : (initSqlJsModule as unknown as { default: typeof initSqlJsModule }).default;
+
+const wasmBinaryPath = require.resolve('sql.js/dist/sql-wasm.wasm');
+const SQL = await initSqlJs({
+  locateFile: () => wasmBinaryPath,
+});
+
+function resolveWritableDbPath(): string | null {
+  const rawEnvPath = process.env.SQLITE_DB_PATH?.trim();
+  const preferredPath = rawEnvPath || './trustlink.db';
+
+  if (preferredPath === ':memory:') {
+    console.log('[Verilar] Banco SQLite iniciado em memória (:memory:)');
+    return null;
+  }
+
+  const candidates = [
+    path.resolve(PROJECT_ROOT, preferredPath),
+    path.join(os.tmpdir(), 'verilar-trustlink.db'),
+  ];
+
   for (const candidate of candidates) {
     try {
-      const instance = new Database(candidate);
-      instance.pragma('busy_timeout = 5000');
-      if (candidate !== ':memory:') {
-        // Evita travamento de arquivos -shm (WAL) em pastas Desktop sincronizadas no Windows/OneDrive/rede
-        const journalMode = process.platform === 'win32' ? 'DELETE' : 'WAL';
-        instance.pragma(`journal_mode = ${journalMode}`);
+      fs.mkdirSync(path.dirname(candidate), { recursive: true });
+      if (!fs.existsSync(candidate)) {
+        // Testa permissão de escrita na pasta imediatamente
+        fs.writeFileSync(candidate, Buffer.alloc(0));
+        fs.unlinkSync(candidate);
       }
-      instance.pragma('foreign_keys = ON');
-      if (candidate !== preferredPath) {
-        console.warn(`[Verilar] Banco SQLite aberto em caminho alternativo: ${candidate}`);
-      }
-      return instance;
-    } catch (err) {
-      lastError = err;
+      return candidate;
+    } catch {
+      // Tenta próximo caminho candidato caso a pasta seja somente-leitura
     }
   }
 
-  throw lastError;
+  console.warn('[Verilar] Sem permissão de escrita em disco; operando em memória.');
+  return null;
 }
 
-export const sqlite = openSqliteDatabase();
+const activeDbFilePath = resolveWritableDbPath();
+
+function createRawSqlJsInstance(): SqlJsDatabase {
+  if (activeDbFilePath && fs.existsSync(activeDbFilePath)) {
+    try {
+      const existingBytes = fs.readFileSync(activeDbFilePath);
+      if (existingBytes.byteLength >= 16) {
+        return new SQL.Database(new Uint8Array(existingBytes));
+      }
+    } catch (err) {
+      console.warn(
+        '[Verilar] Arquivo de banco existente inválido ou vazio; recriando estrutura limpa.',
+        err
+      );
+    }
+  }
+  return new SQL.Database();
+}
+
+const rawSqlite = createRawSqlJsInstance();
+rawSqlite.run('PRAGMA foreign_keys = ON;');
+
+let txDepth = 0;
+let wrapperDepth = 0;
+
+function isMutatingSql(upperTrimmedSql: string): boolean {
+  return (
+    upperTrimmedSql.startsWith('INSERT') ||
+    upperTrimmedSql.startsWith('UPDATE') ||
+    upperTrimmedSql.startsWith('DELETE') ||
+    upperTrimmedSql.startsWith('REPLACE') ||
+    upperTrimmedSql.startsWith('CREATE') ||
+    upperTrimmedSql.startsWith('ALTER') ||
+    upperTrimmedSql.startsWith('DROP')
+  );
+}
+
+export function getDatabaseFilePath(): string {
+  return activeDbFilePath ?? ':memory:';
+}
+
+export function persistDatabaseToDisk(): void {
+  if (!activeDbFilePath) return;
+  const exportedBytes = rawSqlite.export();
+  fs.writeFileSync(activeDbFilePath, Buffer.from(exportedBytes));
+}
+
+function instrumentSqlJsPersistence(client: SqlJsDatabase): SqlJsDatabase {
+  const origPrepare = client.prepare.bind(client);
+  const origRun = client.run.bind(client);
+  const origExec = client.exec.bind(client);
+
+  client.prepare = ((sqlText: string, params?: BindParams) => {
+    const stmt = params !== undefined ? origPrepare(sqlText, params) : origPrepare(sqlText);
+    const origStmtRun = stmt.run.bind(stmt);
+
+    stmt.run = ((values?: BindParams) => {
+      const isTopLevel = wrapperDepth === 0;
+      wrapperDepth += 1;
+      const upper = sqlText.trimStart().toUpperCase();
+
+      try {
+        if (upper.startsWith('BEGIN')) {
+          const res = values !== undefined ? origStmtRun(values) : origStmtRun();
+          if (isTopLevel) txDepth += 1;
+          return res;
+        }
+
+        if (upper.startsWith('COMMIT') || upper.startsWith('END')) {
+          const res = values !== undefined ? origStmtRun(values) : origStmtRun();
+          if (isTopLevel) {
+            txDepth = Math.max(0, txDepth - 1);
+            if (txDepth === 0) persistDatabaseToDisk();
+          }
+          return res;
+        }
+
+        if (upper.startsWith('ROLLBACK')) {
+          try {
+            return values !== undefined ? origStmtRun(values) : origStmtRun();
+          } finally {
+            if (isTopLevel) txDepth = Math.max(0, txDepth - 1);
+          }
+        }
+
+        const res = values !== undefined ? origStmtRun(values) : origStmtRun();
+        if (isTopLevel && txDepth === 0 && isMutatingSql(upper)) {
+          persistDatabaseToDisk();
+        }
+        return res;
+      } finally {
+        wrapperDepth -= 1;
+      }
+    }) as typeof stmt.run;
+
+    return stmt;
+  }) as typeof client.prepare;
+
+  client.run = ((sqlText: string, params?: BindParams) => {
+    const isTopLevel = wrapperDepth === 0;
+    wrapperDepth += 1;
+    try {
+      const res = params !== undefined ? origRun(sqlText, params) : origRun(sqlText);
+      const upper = sqlText.trimStart().toUpperCase();
+      if (isTopLevel && txDepth === 0 && isMutatingSql(upper)) {
+        persistDatabaseToDisk();
+      }
+      return res;
+    } finally {
+      wrapperDepth -= 1;
+    }
+  }) as typeof client.run;
+
+  client.exec = ((sqlText: string, params?: BindParams) => {
+    const isTopLevel = wrapperDepth === 0;
+    wrapperDepth += 1;
+    try {
+      const res = params !== undefined ? origExec(sqlText, params) : origExec(sqlText);
+      const upper = sqlText.trimStart().toUpperCase();
+      if (isTopLevel && txDepth === 0 && isMutatingSql(upper)) {
+        persistDatabaseToDisk();
+      }
+      return res;
+    } finally {
+      wrapperDepth -= 1;
+    }
+  }) as typeof client.exec;
+
+  return client;
+}
+
+export const sqlite = instrumentSqlJsPersistence(rawSqlite);
 
 export const db = drizzle(sqlite, { schema });
 
 function ensureProfileColumns(): void {
-  const existingCols = sqlite
-    .prepare("PRAGMA table_info('profiles')")
-    .all() as Array<{ name: string }>;
-  const names = new Set(existingCols.map((c) => c.name));
+  const tableInfo = sqlite.exec("PRAGMA table_info('profiles')");
+  const existingRows = tableInfo[0]?.values ?? [];
+  const names = new Set(existingRows.map((row) => String(row[1])));
 
   const migrations: Array<[string, string]> = [
     ['age', 'ALTER TABLE profiles ADD COLUMN age INTEGER NOT NULL DEFAULT 38'],
@@ -308,4 +459,5 @@ export function initializeSchemaDDL(): void {
   `);
 
   ensureProfileColumns();
+  persistDatabaseToDisk();
 }
