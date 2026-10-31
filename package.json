@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
+    "dev:node": "node --no-warnings=ExperimentalWarning --experimental-strip-types --experimental-require-module server.ts",
+    "start:local": "npm run build && node --no-warnings=ExperimentalWarning --experimental-strip-types --experimental-require-module server.ts --prod",
     "build": "vite build",
     "start": "node server.ts",
     "preview": "vite preview",
     "db:studio": "drizzle-kit studio",
-    "clean": "node -e \"const fs = require('fs'); fs.rmSync('dist', { recursive: true, force: true });\"",
+    "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

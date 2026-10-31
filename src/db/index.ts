@@ -1,14 +1,40 @@
+import os from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.ts';
 
-const dbFilePath = process.env.SQLITE_DB_PATH || './trustlink.db';
+function openSqliteDatabase(): InstanceType<typeof Database> {
+  const preferredPath = process.env.SQLITE_DB_PATH || './trustlink.db';
+  const candidates =
+    preferredPath === ':memory:'
+      ? [':memory:']
+      : [preferredPath, path.join(os.tmpdir(), 'verilar-trustlink.db'), ':memory:'];
 
-export const sqlite = new Database(dbFilePath);
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      const instance = new Database(candidate);
+      instance.pragma('busy_timeout = 5000');
+      if (candidate !== ':memory:') {
+        // Evita travamento de arquivos -shm (WAL) em pastas Desktop sincronizadas no Windows/OneDrive/rede
+        const journalMode = process.platform === 'win32' ? 'DELETE' : 'WAL';
+        instance.pragma(`journal_mode = ${journalMode}`);
+      }
+      instance.pragma('foreign_keys = ON');
+      if (candidate !== preferredPath) {
+        console.warn(`[Verilar] Banco SQLite aberto em caminho alternativo: ${candidate}`);
+      }
+      return instance;
+    } catch (err) {
+      lastError = err;
+    }
+  }
 
-// Performance & integrity pragmas for local SQLite
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
+  throw lastError;
+}
+
+export const sqlite = openSqliteDatabase();
 
 export const db = drizzle(sqlite, { schema });
 
